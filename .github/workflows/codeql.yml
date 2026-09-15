@@ -39,7 +39,7 @@ jobs:
         # csharp: bindings/csharp. actions: the workflow files themselves.
         language: [rust, csharp, actions]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - if: matrix.language == 'rust'
         uses: dtolnay/rust-toolchain@stable
