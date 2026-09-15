@@ -107,6 +107,22 @@ Flags `DateTime.Now`/`DateTime.UtcNow`, `Environment.TickCount`, and `UnityEngin
 
 Same rationale as `drift::wallclock_read`. Fix: use your simulation's own deterministic tick counter.
 
+### `DRIFT0004` — Parallel iteration result order
+
+Flags `.AsParallel()` (PLINQ) and `Parallel.ForEach`/`Parallel.For` (`System.Threading.Tasks`).
+
+Same rationale as `drift::unordered_parallelism`, targeting .NET's own parallelism primitives instead of rayon. Same known problem: doesn't verify the terminal reduction is actually commutative.
+
+### `DRIFT0005` — pointer-width member on a record
+
+Flags `nint`/`nuint` (and the older `IntPtr`/`UIntPtr` spellings) members on a `record`/`record struct` — positional parameters, fields, and properties.
+
+**Why a record, not `[derive(Hash)]`-equivalent detection**: a C# `record`/`record struct` is the closest real analogue to Rust's `#[derive(Hash)]` — its `GetHashCode`/`Equals` are compiler-generated from every member, exactly the same "every field matters" semantics. A plain class with a hand-written `GetHashCode()` override doesn't get this rule (see Known limitation).
+
+Same rationale as `drift::usize_in_hashed_state`: `nint`/`nuint` are pointer-width (32 vs. 64 bits), so a record hashed for a cross-peer sync check hashes differently across architectures.
+
+**Known limitation**: only checks `record`/`record struct` declarations — a plain class or struct with a hand-written `GetHashCode()` override containing a pointer-width field isn't covered. Detecting that reliably (was `GetHashCode` actually written to include this field, or does it ignore it?) needs real data-flow analysis into the method body, not just a syntax shape — deferred rather than guessed at.
+
 ### Suppressing a C# rule
 
 ```csharp
