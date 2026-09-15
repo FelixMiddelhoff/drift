@@ -1,0 +1,11 @@
+warning: usize/isize field on a struct deriving Hash — width varies across platforms
+  --> $DIR/main.rs:3:5
+   |
+LL |     id: usize,
+   |     ^^^^^^^^^
+   |
+   = help: use a fixed-width integer type (u32/u64/i32/i64) instead
+   = note: `#[warn(drift_usize_in_hashed_state)]` on by default
+
+warning: 1 warning emitted
+

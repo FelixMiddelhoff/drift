@@ -32,9 +32,34 @@ jobs:
       - uses: Swatinem/rust-cache@v2
       - run: cargo test --workspace --all-features
 
-  # Once drift-lint wraps dylint (drift-planning/drift-plan.md §4/§10):
-  # a job here should run `cargo dylint --lib drift` against
-  # drift-lint-testing's fixture corpus and examples/minimal-rust,
-  # asserting known-good code stays clean and known-violation fixtures
-  # actually lint.
-  # dylint-fixtures:
+  # crates/drift-lint is its own detached workspace pinned to a specific
+  # nightly (crates/drift-lint/rust-toolchain.toml) — dylint needs
+  # rustc-dev/llvm-tools-preview the root stable workspace doesn't. Its
+  # own tests (UI tests per rule, in ui/ and examples/) are the actual
+  # regression corpus — see docs/rule-catalog.md for what each covers.
+  #
+  # dylint_driver's build script does a full, uncached clone of
+  # rust-lang/rust-clippy on every clean build to extract symbol data for
+  # nightly >= 2025-05-06 (confirmed locally — no persistent cache
+  # across builds, a real operational fragility, not just a slow step).
+  # Swatinem/rust-cache should cache target/ across runs so this only
+  # bites on a genuinely clean cache, but if this job goes flaky on a
+  # git-clone step, that's why — see the commit that introduced this job.
+  drift-lint-test:
+    name: drift-lint test (${{ matrix.os }})
+    needs: fmt-and-lint
+    strategy:
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install the pinned nightly toolchain
+        working-directory: crates/drift-lint
+        run: rustup show
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: crates/drift-lint -> target
+      - name: Run drift-lint's rule UI tests
+        working-directory: crates/drift-lint
+        run: cargo test -- --test-threads=1

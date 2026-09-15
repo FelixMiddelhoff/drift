@@ -1,0 +1,11 @@
+warning: rayon parallel iteration — result order is scheduler-dependent
+  --> $DIR/unordered_parallelism.rs:5:5
+   |
+LL |     units.par_iter().for_each(|u| {
+   |     ^^^^^^^^^^^^^^^^
+   |
+   = help: confirm the terminal reduction is order-independent (commutative), or suppress if already confirmed
+   = note: `#[warn(drift_unordered_parallelism)]` on by default
+
+warning: 1 warning emitted
+

@@ -1,5 +1,6 @@
 use clippy_utils::diagnostics::span_lint_and_help;
-use rustc_hir::{Expr, ExprKind, QPath};
+use clippy_utils::res::{MaybeDef, MaybeQPath};
+use rustc_hir::{Expr, ExprKind};
 use rustc_lint::{LateContext, LateLintPass};
 use rustc_session::{declare_lint, declare_lint_pass};
 
@@ -43,10 +44,7 @@ impl<'tcx> LateLintPass<'tcx> for UnseededRng {
         let ExprKind::Call(callee, _args) = expr.kind else {
             return;
         };
-        let ExprKind::Path(QPath::Resolved(_, path)) = callee.kind else {
-            return;
-        };
-        let Some(def_id) = path.res.opt_def_id() else {
+        let Some(def_id) = callee.res(cx).opt_def_id() else {
             return;
         };
         let def_path = cx.tcx.def_path_str(def_id);

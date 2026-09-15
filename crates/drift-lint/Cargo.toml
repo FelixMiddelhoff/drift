@@ -21,6 +21,9 @@ dylint_testing = "6.0.4"
 # as a normal example target with real dependency resolution, unlike a
 # plain src_base ui test which has none.
 rand = "0.9"
+# unordered_parallelism's fixture (examples/unordered_parallelism.rs)
+# needs a real `rayon` crate to call `.par_iter()` against.
+rayon = "1.10"
 
 [features]
 rlib = ["dylint_linting/constituent"]

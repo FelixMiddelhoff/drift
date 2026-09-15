@@ -1,0 +1,11 @@
+warning: wall-clock read — not guaranteed the same across peers
+  --> $DIR/main.rs:4:18
+   |
+LL |     let _start = Instant::now();
+   |                  ^^^^^^^^^^^^^^
+   |
+   = help: use your simulation's own deterministic tick counter if this feeds simulated state
+   = note: `#[warn(drift_wallclock_read)]` on by default
+
+warning: 1 warning emitted
+
