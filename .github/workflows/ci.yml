@@ -60,6 +60,15 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: crates/drift-lint -> target
+      # dylint-link is the actual linker crates/drift-lint's own
+      # .cargo/config.toml points rustc at — without it installed on
+      # PATH, even a dependency's build script fails to link (confirmed
+      # by a real CI failure: "linker `dylint-link` not found" on
+      # serde_core's build script, nothing to do with drift-lint's own
+      # code). `cargo-dylint` isn't invoked in this job (tests run via
+      # plain `cargo test`, not `cargo dylint`) but installing both
+      # together mirrors local dev setup and README's own instructions.
+      - run: cargo install cargo-dylint dylint-link
       - name: Run drift-lint's rule UI tests
         working-directory: crates/drift-lint
         run: cargo test -- --test-threads=1
