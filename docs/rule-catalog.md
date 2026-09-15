@@ -85,4 +85,30 @@ fn ui_only_function() { /* ... */ }
 
 ## C#/Unity (`Drift.Analyzers`)
 
-Not yet built — see [drift-START-HERE.md](../../drift-planning/drift-START-HERE.md) for current status.
+A Roslyn analyzer, `bindings/csharp/Drift.Analyzers` — works in any C# project, not just Unity (Unity-specific rules are simply scoped to `UnityEngine.*` types and still just ordinary C# analysis). Install by referencing the built `Drift.Analyzers.dll` as an `Analyzer` item, or via the NuGet package once published (not yet).
+
+### `DRIFT0001` — Dictionary/HashSet iteration order
+
+Flags `foreach` over a `Dictionary<TKey, TValue>`/`HashSet<T>` (including their `.Keys`/`.Values` collections).
+
+Same rationale as `drift::hashmap_iter`. Fix: use a `SortedDictionary`/`SortedSet`, or sort before iterating.
+
+**Known limitation**: only recognizes the generic `System.Collections.Generic.Dictionary`/`HashSet` by name — doesn't yet follow the non-generic `System.Collections.IDictionary`/`ICollection` interfaces (found for real dogfooding against Foldback's Unity binding: `FoldbackReflection.cs` has an `if (value is IDictionary dict)` branch this rule doesn't see through). Worth closing in a follow-up.
+
+### `DRIFT0002` — RNG seeded from OS/engine entropy
+
+Flags `new System.Random()` (parameterless — seeded from `Environment.TickCount`) and any `UnityEngine.Random.*` member access except `InitState`/`state` (the deterministic-seeding mechanism itself, not a violation).
+
+Same rationale as `drift::unseeded_rng`. Fix: `new Random(seed)`, or `UnityEngine.Random.InitState(seed)`, fed by your simulation's deterministic seed.
+
+### Suppressing a C# rule
+
+```csharp
+#pragma warning disable DRIFT0001
+// ...
+#pragma warning restore DRIFT0001
+```
+
+### Dogfood result
+
+Run against Foldback's real Unity binding (`bindings/unity/Runtime/FoldbackReflection.cs`, `bindings/unity/Tests~/FoldbackSys.Tests/Program.cs`): zero hits — neither file actually `foreach`es over a generic `Dictionary`/`HashSet` or constructs an unseeded RNG (all `HashSet`/`Dictionary` uses there are construction or non-`foreach` access). The one real gap this surfaced is the `IDictionary` limitation noted above, not a false positive.

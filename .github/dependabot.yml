@@ -15,6 +15,15 @@ updates:
       cargo-minor-patch:
         update-types: ["minor", "patch"]
 
+  # crates/drift-lint is its own detached Cargo workspace (pinned nightly,
+  # own Cargo.lock) — not covered by the root cargo entry above, same
+  # reasoning as foldback's fuzz crate having its own entry.
+  - package-ecosystem: "cargo"
+    directory: "/crates/drift-lint"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 5
+
   # GitHub Actions workflow dependencies (actions/checkout, dtolnay/
   # rust-toolchain, etc.) — pinned by tag, same reasoning as pinning any
   # other dependency.
@@ -24,9 +33,10 @@ updates:
       interval: "weekly"
     open-pull-requests-limit: 5
 
-  # bindings/csharp/Drift.Analyzers — added once Phase 2 (the Roslyn
-  # analyzer) actually exists as a .csproj/NuGet-consuming project.
-  # - package-ecosystem: "nuget"
-  #   directory: "/bindings/csharp"
-  #   schedule:
-  #     interval: "weekly"
+  # bindings/csharp — Drift.Analyzers + Drift.Analyzers.Tests, both
+  # resolve through NuGet.
+  - package-ecosystem: "nuget"
+    directory: "/bindings/csharp"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 5

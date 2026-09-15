@@ -63,3 +63,16 @@ jobs:
       - name: Run drift-lint's rule UI tests
         working-directory: crates/drift-lint
         run: cargo test -- --test-threads=1
+
+  csharp-analyzer-test:
+    name: Drift.Analyzers test (${{ matrix.os }})
+    strategy:
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "10.0.x"
+      - run: dotnet test bindings/csharp/Drift.Analyzers.Tests

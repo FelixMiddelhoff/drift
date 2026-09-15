@@ -5,8 +5,7 @@
 # so its target dir isn't caught by the root /target ignore above.
 crates/drift-lint/target/
 
-# bindings/csharp/Drift.Analyzers — standard .NET/Roslyn analyzer project
-# generated output, never committed (lands once Phase 2 starts).
+# bindings/csharp — standard .NET/Roslyn generated output, never committed.
 bindings/csharp/**/bin/
 bindings/csharp/**/obj/
 
