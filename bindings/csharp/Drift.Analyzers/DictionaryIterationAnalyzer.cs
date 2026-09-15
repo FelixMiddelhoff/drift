@@ -76,11 +76,31 @@ public sealed class DictionaryIterationAnalyzer : DiagnosticAnalyzer
     {
         var original = type.OriginalDefinition;
         var ns = original.ContainingNamespace?.ToDisplayString();
-        if (ns != "System.Collections.Generic")
+
+        if (ns == "System.Collections.Generic" && original.Name is "Dictionary" or "HashSet")
         {
-            return false;
+            return true;
         }
 
-        return original.Name is "Dictionary" or "HashSet";
+        // The non-generic System.Collections.IDictionary interface
+        // specifically (not its generic IDictionary<TKey,TValue>
+        // cousin): found as a real gap dogfooding against Foldback's
+        // Unity binding (FoldbackReflection.cs pattern-matches on
+        // `is IDictionary dict`, iterated via foreach right after —
+        // the concrete type behind it is invisible here). The
+        // non-generic interface is deliberately not extended to the
+        // generic one: SortedDictionary<TKey,TValue> also implements
+        // IDictionary<TKey,TValue>, so flagging that interface broadly
+        // would produce a new false positive on genuinely ordered code
+        // — this rule already has one documented false-positive class
+        // (see docs/rule-catalog.md) and shouldn't gain another to close
+        // this gap. Non-generic IDictionary has no such common ordered
+        // implementation in practice.
+        if (ns == "System.Collections" && original.Name == "IDictionary")
+        {
+            return true;
+        }
+
+        return false;
     }
 }
