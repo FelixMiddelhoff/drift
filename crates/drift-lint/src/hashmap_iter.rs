@@ -1,7 +1,8 @@
+use crate::reachability::{Config, Reachable, load_config};
 use clippy_utils::diagnostics::span_lint_and_help;
 use rustc_hir::{Expr, ExprKind};
 use rustc_lint::{LateContext, LateLintPass};
-use rustc_session::{declare_lint, declare_lint_pass};
+use rustc_session::{declare_lint, impl_lint_pass};
 use rustc_span::sym;
 
 declare_lint! {
@@ -18,13 +19,16 @@ declare_lint! {
     /// happened to land in a different bucket order.
     ///
     /// ### Known problems
-    /// This is a blunt, unconditional check — it doesn't yet know whether
-    /// the iteration site is reachable from tagged simulation code
-    /// (drift-planning/drift-plan.md §5's `#[drift::tick_reachable]` tiered
-    /// integration model is not implemented by this prototype), so it will
-    /// flag legitimate non-deterministic uses (UI, logging, debug tooling)
-    /// too. Suppress with `#[allow(drift::hashmap_iter)]` at those sites
-    /// until reachability scoping exists.
+    /// Unconditional unless a `dylint.toml` configures
+    /// `tick_reachable_roots` (see `crate::reachability`), in which case
+    /// only sites reachable from those roots via a direct, intra-crate
+    /// call graph fire — `dyn Trait`/fn-pointer call targets aren't
+    /// traversed, a documented under-approximation. Also known to
+    /// false-positive on code that collects into a `Vec` and sorts it
+    /// immediately after the flagged call (see docs/rule-catalog.md for a
+    /// real example found dogfooding against Foldback) — the rule doesn't
+    /// look ahead for a following sort. Suppress with
+    /// `#[allow(drift_hashmap_iter)]` at either kind of site.
     ///
     /// ### Example
     /// ```rust
@@ -49,7 +53,21 @@ declare_lint! {
     "iterating a HashMap/HashSet, whose order is not guaranteed stable across peers"
 }
 
-declare_lint_pass!(HashmapIter => [DRIFT_HASHMAP_ITER]);
+pub struct HashmapIter {
+    config: Config,
+    reachable: Reachable,
+}
+
+impl HashmapIter {
+    pub fn new() -> Self {
+        Self {
+            config: load_config(),
+            reachable: Reachable::default(),
+        }
+    }
+}
+
+impl_lint_pass!(HashmapIter => [DRIFT_HASHMAP_ITER]);
 
 const FLAGGED_METHODS: &[&str] = &[
     "iter",
@@ -62,6 +80,10 @@ const FLAGGED_METHODS: &[&str] = &[
 ];
 
 impl<'tcx> LateLintPass<'tcx> for HashmapIter {
+    fn check_crate(&mut self, cx: &LateContext<'tcx>) {
+        self.reachable = Reachable::compute(cx, &self.config);
+    }
+
     fn check_expr(&mut self, cx: &LateContext<'tcx>, expr: &'tcx Expr<'tcx>) {
         let ExprKind::MethodCall(segment, receiver, _args, _span) = expr.kind else {
             return;
@@ -77,6 +99,12 @@ impl<'tcx> LateLintPass<'tcx> for HashmapIter {
         let is_hash_container = cx.tcx.is_diagnostic_item(sym::HashMap, def_id)
             || cx.tcx.is_diagnostic_item(sym::HashSet, def_id);
         if !is_hash_container {
+            return;
+        }
+        if !self
+            .reachable
+            .includes(cx.tcx.hir_enclosing_body_owner(expr.hir_id))
+        {
             return;
         }
         span_lint_and_help(

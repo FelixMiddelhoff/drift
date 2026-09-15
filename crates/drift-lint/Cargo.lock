@@ -287,6 +287,8 @@ dependencies = [
  "dylint_testing",
  "rand",
  "rayon",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]

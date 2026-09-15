@@ -4,6 +4,9 @@
 # crates/drift-lint is its own detached Cargo workspace (pinned nightly),
 # so its target dir isn't caught by the root /target ignore above.
 crates/drift-lint/target/
+# tests/reachability_fixture is its own detached workspace too (see its
+# own Cargo.toml [workspace] table) — same reasoning.
+crates/drift-lint/tests/reachability_fixture/target/
 
 # bindings/csharp — standard .NET/Roslyn generated output, never committed.
 bindings/csharp/**/bin/

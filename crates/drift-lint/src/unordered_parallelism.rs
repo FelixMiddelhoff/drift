@@ -1,7 +1,8 @@
+use crate::reachability::{Config, Reachable, load_config};
 use clippy_utils::diagnostics::span_lint_and_help;
 use rustc_hir::{Expr, ExprKind};
 use rustc_lint::{LateContext, LateLintPass};
-use rustc_session::{declare_lint, declare_lint_pass};
+use rustc_session::{declare_lint, impl_lint_pass};
 
 declare_lint! {
     /// ### What it does
@@ -23,7 +24,9 @@ declare_lint! {
     /// following the whole iterator-adapter chain to its terminal
     /// operation, not implemented by this prototype. A `par_iter()` whose
     /// result is genuinely order-independent is a false positive; suppress
-    /// with `#[allow(drift::unordered_parallelism)]` once confirmed.
+    /// with `#[allow(drift_unordered_parallelism)]` once confirmed. Also
+    /// scoped by `dylint.toml`'s `tick_reachable_roots` when configured
+    /// (see `crate::reachability`).
     ///
     /// ### Example
     /// ```rust,ignore
@@ -35,11 +38,29 @@ declare_lint! {
     "rayon parallel iteration in code reachable from simulation state"
 }
 
-declare_lint_pass!(UnorderedParallelism => [DRIFT_UNORDERED_PARALLELISM]);
+pub struct UnorderedParallelism {
+    config: Config,
+    reachable: Reachable,
+}
+
+impl UnorderedParallelism {
+    pub fn new() -> Self {
+        Self {
+            config: load_config(),
+            reachable: Reachable::default(),
+        }
+    }
+}
+
+impl_lint_pass!(UnorderedParallelism => [DRIFT_UNORDERED_PARALLELISM]);
 
 const FLAGGED_METHODS: &[&str] = &["par_iter", "par_iter_mut", "into_par_iter", "par_bridge"];
 
 impl<'tcx> LateLintPass<'tcx> for UnorderedParallelism {
+    fn check_crate(&mut self, cx: &LateContext<'tcx>) {
+        self.reachable = Reachable::compute(cx, &self.config);
+    }
+
     fn check_expr(&mut self, cx: &LateContext<'tcx>, expr: &'tcx Expr<'tcx>) {
         let ExprKind::MethodCall(segment, _receiver, _args, _span) = expr.kind else {
             return;
@@ -55,6 +76,12 @@ impl<'tcx> LateLintPass<'tcx> for UnorderedParallelism {
         };
         let def_path = cx.tcx.def_path_str(method_def_id);
         if !def_path.starts_with("rayon::") {
+            return;
+        }
+        if !self
+            .reachable
+            .includes(cx.tcx.hir_enclosing_body_owner(expr.hir_id))
+        {
             return;
         }
         span_lint_and_help(

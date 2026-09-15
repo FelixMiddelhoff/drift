@@ -1,6 +1,6 @@
 use clippy_utils::diagnostics::span_lint_and_help;
 use rustc_hir::attrs::AttributeKind;
-use rustc_hir::{find_attr, Item, ItemKind};
+use rustc_hir::{Item, ItemKind, find_attr};
 use rustc_lint::{LateContext, LateLintPass};
 use rustc_middle::ty::TyKind;
 use rustc_session::{declare_lint, declare_lint_pass};
@@ -24,7 +24,15 @@ declare_lint! {
     /// somewhere," but produces a false positive on a struct hashed only
     /// for something width-insensitive (e.g. a `HashMap` key never
     /// compared across processes). Suppress with
-    /// `#[allow(drift::usize_in_hashed_state)]` in that case.
+    /// `#[allow(drift_usize_in_hashed_state)]` in that case.
+    ///
+    /// Deliberately **not** scoped by `dylint.toml`'s
+    /// `tick_reachable_roots` (see `crate::reachability`), unlike this
+    /// crate's other rules: reachability is a call-graph-from-a-function
+    /// concept, and this rule flags a *struct field definition*, not code
+    /// inside a function — the struct could be constructed and hashed
+    /// from a reachable function regardless of where it's declared, so
+    /// scoping by call-graph reachability wouldn't make sense here.
     ///
     /// ### Example
     /// ```rust

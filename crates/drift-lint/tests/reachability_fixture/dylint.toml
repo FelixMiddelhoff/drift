@@ -1,0 +1,3 @@
+[drift-lint]
+tick_reachable_roots = ["tick"]
+fixed_step_functions = ["physics_integrate"]

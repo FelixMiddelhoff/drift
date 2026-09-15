@@ -1,7 +1,7 @@
 [package]
 name = "drift-lint"
 version = "0.0.1"
-edition = "2021"
+edition = "2024"
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/FelixMiddelhoff/drift"
 description = "dylint lints catching game-simulation non-determinism before it causes a rollback-netcode desync."
@@ -20,6 +20,7 @@ crate-type = ["cdylib", "rlib"]
 [dependencies]
 clippy_utils = { git = "https://github.com/rust-lang/rust-clippy", rev = "09382ed3c34e091d7705f96964e303b59978533c" }
 dylint_linting = "6.0.4"
+serde = { version = "1", features = ["derive"] }
 
 [dev-dependencies]
 dylint_testing = "6.0.4"
@@ -31,6 +32,7 @@ rand = "0.10"
 # unordered_parallelism's fixture (examples/unordered_parallelism.rs)
 # needs a real `rayon` crate to call `.par_iter()` against.
 rayon = "1.10"
+serde_json = "1"
 
 [features]
 rlib = ["dylint_linting/constituent"]
