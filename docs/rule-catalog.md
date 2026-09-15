@@ -101,6 +101,12 @@ Flags `new System.Random()` (parameterless — seeded from `Environment.TickCoun
 
 Same rationale as `drift::unseeded_rng`. Fix: `new Random(seed)`, or `UnityEngine.Random.InitState(seed)`, fed by your simulation's deterministic seed.
 
+### `DRIFT0003` — Wall-clock read
+
+Flags `DateTime.Now`/`DateTime.UtcNow`, `Environment.TickCount`, and `UnityEngine.Time.realtimeSinceStartup`.
+
+Same rationale as `drift::wallclock_read`. Fix: use your simulation's own deterministic tick counter.
+
 ### Suppressing a C# rule
 
 ```csharp
