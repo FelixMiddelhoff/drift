@@ -1,0 +1,67 @@
+name: CodeQL
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  schedule:
+    # Weekly, catches new query-pack findings on unchanged code, not just
+    # findings introduced by a given push/PR.
+    - cron: "23 4 * * 1"
+  workflow_dispatch:
+
+# Without this, a superseded run from an earlier push keeps executing to
+# completion instead of being replaced by the run for the newer commit.
+concurrency:
+  group: codeql-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  analyze:
+    name: Analyze (${{ matrix.language }})
+    runs-on: ubuntu-latest
+    permissions:
+      security-events: write
+      packages: read
+      actions: read
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        # rust: the root stable workspace only (examples/, no crates yet
+        # beyond the workspace skeleton). crates/drift-lint is its own
+        # detached, nightly-pinned Cargo workspace (needs
+        # rustc-dev/llvm-tools-preview, a fragile clippy-repo clone on
+        # every clean build per drift-START-HERE.md) — deliberately not
+        # scanned here, a disclosed gap, not a silent omission; revisit
+        # once that workspace's build is less fragile in CI generally.
+        # csharp: bindings/csharp. actions: the workflow files themselves.
+        language: [rust, csharp, actions]
+    steps:
+      - uses: actions/checkout@v4
+
+      - if: matrix.language == 'rust'
+        uses: dtolnay/rust-toolchain@stable
+
+      - uses: github/codeql-action/init@v3
+        with:
+          languages: ${{ matrix.language }}
+          queries: security-extended
+
+      # C# needs an actual build for CodeQL to analyze (a compiled
+      # language) — Rust's `autobuild` below handles the Cargo workspace
+      # fine on its own.
+      - if: matrix.language == 'csharp'
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "10.0.x"
+      - if: matrix.language == 'csharp'
+        run: dotnet build bindings/csharp/Drift.Analyzers.Tests
+
+      - if: matrix.language == 'rust'
+        uses: github/codeql-action/autobuild@v3
+
+      - uses: github/codeql-action/analyze@v3
+        with:
+          category: "/language:${{ matrix.language }}"
