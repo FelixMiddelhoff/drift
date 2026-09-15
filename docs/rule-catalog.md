@@ -164,3 +164,28 @@ Same rationale as `drift::usize_in_hashed_state`: `nint`/`nuint` are pointer-wid
 ### Dogfood result
 
 Run against Foldback's real Unity binding (`bindings/unity/Runtime/FoldbackReflection.cs`, `bindings/unity/Tests~/FoldbackSys.Tests/Program.cs`) with all 5 rules: zero hits. Genuinely clean, re-verified by reading the code, not just grepping type names — see DRIFT0001 above for the one case that looked like a gap on a first pass and wasn't on a closer read.
+
+## Unreal C++ (`bindings/unreal/drift-unreal-lint`)
+
+A standalone Rust binary using [libclang](https://clang.llvm.org/docs/Tooling.html) directly (the `clang` crate) against a project's `compile_commands.json` — stock LLVM/Clang, no engine fork, no custom clang-tidy check compiled into LLVM (see [drift-godot-unreal-plan.md §6](https://github.com/FelixMiddelhoff/drift) for why: the prebuilt LLVM package ships `clang-c` headers + `libclang.lib` only, not the full LibTooling headers a real clang-tidy check needs). Real UnrealBuildTool `compile_commands.json` entries are `clang-cl.exe @file.rsp`, and `file.rsp` itself nests a second `@...Shared.rsp` — both response files are expanded recursively, and `--driver-mode=cl` is added automatically when the original compiler was `clang-cl` so its MSVC-style flags (`/FI`, `/Fo`, `/clang:...`) parse correctly.
+
+Build: `cargo build` inside `bindings/unreal/drift-unreal-lint`, with `LIBCLANG_PATH` pointing at your LLVM install's `bin` directory (e.g. `C:\Program Files\LLVM\bin`). Run: `drift-unreal-lint <compile_commands.json> [config.toml]`.
+
+### Reachability scoping (required — this rule is opt-in only)
+
+Same rationale as the Rust side's `dylint.toml`: unscoped, this would blanket-flag nearly every float operation in a typical Unreal codebase. Without a config file (or an empty one), the tool does nothing and exits 0.
+
+```toml
+tick_reachable_roots = ["ALyraWeaponSpawner::Tick"]
+fixed_step_functions = ["UMyIntegrator::Step"]
+```
+
+`tick_reachable_roots` seeds a reachable-function set built from a real, cross-translation-unit call graph (functions matched by `Namespace::Class::Method`-style qualified name, edges from every `CallExpr` in every parsed TU resolved by USR). Reachability stops at any function whose definition isn't in one of the TUs actually parsed — real Engine-internals calls (a TU outside the target project's own `compile_commands.json`) don't extend the graph further, a real, disclosed limitation, not a silent one.
+
+### `drift-unreal::float_outside_fixed_step`
+
+Flags non-associative float/double arithmetic (`+`, `-`, `*`, `/`) reachable from a `tick_reachable_roots` entry, unless the enclosing function is listed in `fixed_step_functions`. Same rationale as the Rust/C# rule of the same name. A chain like `a + b + c` is deduped to one warning on the outermost expression, not one per operator — verified with a real positive/negative fixture (`tests/fixture/pawn.cpp`): a `Tick`→`Simulate` call chain with two real float-chain statements fires exactly twice (once per statement, not once per operator), and a same-shaped `NotReached` function never called from `Tick` fires zero times.
+
+**Known limitation, real not assumed**: `UPROPERTY`/`UFUNCTION`/`USTRUCT`/etc. specifiers (`EditAnywhere`, `Replicated`, `Category`, ...) are completely invisible to this tool — confirmed by reading `ObjectMacros.h` directly, they're `#define X(...)` (expand to nothing) under normal compilation, only read by UnrealHeaderTool separately. This rule doesn't need that metadata (it only looks at arithmetic and call graphs), so it's unaffected — but a future rule that needed to know "is this field actually replicated" would need a different approach (parsing `.generated.h` output, or a real UE-aware fork like RedpointGames') than this tool's own stock-Clang path.
+
+**Dogfood result**: run against a real, freshly-downloaded Lyra Starter Game (UE 5.8) — all 388 translation units in its `compile_commands.json` parsed successfully (via full response-file expansion), 3087 real function/method definitions found, 554 call edges, and a real root (`ALyraWeaponSpawner::Tick`) resolved correctly. Zero findings from that specific root — real, not a bug: `Tick` there only calls `Super::Tick`, and reachability correctly stops at the Engine-internals boundary (see limitation above), so no false positive and no crash across a real, large, non-trivial codebase.

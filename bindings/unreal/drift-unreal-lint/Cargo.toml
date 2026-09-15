@@ -1,0 +1,20 @@
+[workspace]
+
+[package]
+name = "drift-unreal-lint"
+version = "0.0.1"
+edition = "2021"
+license = "MIT OR Apache-2.0"
+publish = false
+description = "Standalone determinism checker for Unreal C++ (stock Clang, no engine fork) — see D:\\Claude\\drift-planning\\drift-godot-unreal-plan.md"
+
+[[bin]]
+name = "drift-unreal-lint"
+path = "src/main.rs"
+
+[dependencies]
+clang = { version = "2.0", features = ["clang_6_0"] }
+serde = { version = "1", features = ["derive"] }
+toml = "0.8"
+serde_json = "1"
+anyhow = "1"

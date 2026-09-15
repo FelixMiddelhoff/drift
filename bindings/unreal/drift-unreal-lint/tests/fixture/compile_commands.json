@@ -1,0 +1,7 @@
+[
+  {
+    "directory": ".",
+    "file": "pawn.cpp",
+    "arguments": ["clang++", "-std=c++17", "-c", "pawn.cpp"]
+  }
+]

@@ -12,4 +12,9 @@ crates/drift-lint/tests/reachability_fixture/target/
 bindings/csharp/**/bin/
 bindings/csharp/**/obj/
 
+# bindings/unreal/drift-unreal-lint is its own detached Cargo workspace
+# (stable toolchain, but not a root-workspace member — same reasoning as
+# crates/drift-lint above), so its target dir isn't caught by /target.
+bindings/unreal/drift-unreal-lint/target/
+
 /docs/book
