@@ -27,7 +27,7 @@ dylint_testing = "6.0.4"
 # crate to call `rand::random()` against — ui_test_example compiles it
 # as a normal example target with real dependency resolution, unlike a
 # plain src_base ui test which has none.
-rand = "0.9"
+rand = "0.10"
 # unordered_parallelism's fixture (examples/unordered_parallelism.rs)
 # needs a real `rayon` crate to call `.par_iter()` against.
 rayon = "1.10"
