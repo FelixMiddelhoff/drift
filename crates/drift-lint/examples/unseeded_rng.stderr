@@ -1,0 +1,11 @@
+warning: call to an OS-entropy-seeded RNG source
+  --> $DIR/unseeded_rng.rs:2:19
+   |
+LL |     let _x: u32 = rand::random();
+   |                   ^^^^^^^^^^^^^^
+   |
+   = help: use an explicit, tracked seed (e.g. StdRng::seed_from_u64) fed by your simulation's deterministic seed
+   = note: `#[warn(drift_unseeded_rng)]` on by default
+
+warning: 1 warning emitted
+

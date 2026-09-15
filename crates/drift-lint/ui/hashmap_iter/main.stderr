@@ -1,0 +1,11 @@
+warning: iterating a HashMap/HashSet — order is not guaranteed stable across peers
+  --> $DIR/main.rs:6:25
+   |
+LL |     for (_id, _unit) in units.iter() {
+   |                         ^^^^^^^^^^^^
+   |
+   = help: use a BTreeMap/BTreeSet, or sort the keys before iterating, if this feeds simulated state
+   = note: `#[warn(drift_hashmap_iter)]` on by default
+
+warning: 1 warning emitted
+

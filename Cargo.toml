@@ -1,6 +1,10 @@
 [workspace]
 resolver = "2"
 members = ["crates/*", "examples/*"]
+# drift-lint is its own detached workspace (pinned nightly + rustc-dev,
+# see crates/drift-lint/rust-toolchain.toml) — excluded here the same way
+# foldback excludes its fuzz crate from the stable-toolchain root workspace.
+exclude = ["crates/drift-lint"]
 
 [workspace.package]
 version = "0.0.1"

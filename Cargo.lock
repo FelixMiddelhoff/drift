@@ -3,9 +3,5 @@
 version = 4
 
 [[package]]
-name = "drift-lint"
-version = "0.0.1"
-
-[[package]]
 name = "minimal-rust"
 version = "0.0.1"

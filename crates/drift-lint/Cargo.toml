@@ -1,11 +1,35 @@
 [package]
 name = "drift-lint"
-version.workspace = true
-edition.workspace = true
-license.workspace = true
-repository.workspace = true
-description = "Static lints catching game-simulation non-determinism (unordered-container iteration, unseeded RNG, wall-clock reads, etc.) before they cause a rollback-netcode desync."
+version = "0.0.1"
+edition = "2021"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/FelixMiddelhoff/drift"
+description = "dylint lints catching game-simulation non-determinism before it causes a rollback-netcode desync."
+publish = false
 
-# crate-type = ["cdylib", "rlib"] — dylint lint libraries are cdylibs;
-# add this once real dylint wiring lands.
+[lib]
+crate-type = ["cdylib", "rlib"]
 
+[dependencies]
+clippy_utils = { git = "https://github.com/rust-lang/rust-clippy", rev = "09382ed3c34e091d7705f96964e303b59978533c" }
+dylint_linting = "6.0.4"
+
+[dev-dependencies]
+dylint_testing = "6.0.4"
+# unseeded_rng's fixture (examples/unseeded_rng.rs) needs a real `rand`
+# crate to call `rand::random()` against — ui_test_example compiles it
+# as a normal example target with real dependency resolution, unlike a
+# plain src_base ui test which has none.
+rand = "0.9"
+
+[features]
+rlib = ["dylint_linting/constituent"]
+
+[package.metadata.rust-analyzer]
+rustc_private = true
+
+# Detached from the root workspace on purpose: this crate needs a pinned
+# nightly + rustc-dev/llvm-tools-preview (see rust-toolchain.toml here),
+# the root workspace stays on stable — same reasoning as foldback's
+# fuzz crate keeping its own separate workspace/Cargo.lock.
+[workspace]
