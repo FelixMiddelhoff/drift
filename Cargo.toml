@@ -1,10 +1,17 @@
 [workspace]
 resolver = "2"
-members = ["crates/*", "examples/*"]
-# drift-lint is its own detached workspace (pinned nightly + rustc-dev,
-# see crates/drift-lint/rust-toolchain.toml) — excluded here the same way
-# foldback excludes its fuzz crate from the stable-toolchain root workspace.
-exclude = ["crates/drift-lint"]
+# crates/drift-lint is the only thing under crates/ and is its own
+# detached workspace (pinned nightly + rustc-dev, see
+# crates/drift-lint/rust-toolchain.toml) — not a member here, and not
+# glob-included via "crates/*" either: a real Dependabot run against
+# this workspace failed with "failed to read
+# dependabot_tmp_dir/crates/*/Cargo.toml" because Dependabot's own
+# per-directory checkout for the root job doesn't fetch crates/drift-lint
+# (it's handled by its own separate dependabot.yml entry), so a
+# glob+exclude here — which works for plain `cargo build` — broke
+# Dependabot specifically. Listing nothing under crates/ avoids the glob
+# entirely, which is also just correct: there's nothing else there yet.
+members = ["examples/*"]
 
 [workspace.package]
 version = "0.0.1"
