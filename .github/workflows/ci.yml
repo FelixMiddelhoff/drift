@@ -73,6 +73,46 @@ jobs:
         working-directory: crates/drift-lint
         run: cargo test -- --test-threads=1
 
+  # bindings/unreal/drift-unreal-lint is its own detached Cargo workspace
+  # (stable toolchain, unlike crates/drift-lint) — a standalone binary
+  # over libclang (the `clang` crate), not a root-workspace member, same
+  # reasoning as drift-lint above. Needs a real LLVM/Clang install with
+  # libclang present; LIBCLANG_PATH points cargo at it explicitly rather
+  # than relying on each runner image's own bundled copy (or lack of
+  # one), since that's what the local dev setup this mirrors needed too.
+  unreal-lint-test:
+    name: drift-unreal-lint test (${{ matrix.os }})
+    needs: fmt-and-lint
+    strategy:
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: bindings/unreal/drift-unreal-lint -> target
+      - name: Install LLVM/Clang (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libclang-dev clang llvm
+          echo "LIBCLANG_PATH=$(llvm-config --libdir)" >> "$GITHUB_ENV"
+      - name: Install LLVM/Clang (macOS)
+        if: runner.os == 'macOS'
+        run: |
+          brew install llvm
+          echo "LIBCLANG_PATH=$(brew --prefix llvm)/lib" >> "$GITHUB_ENV"
+      - name: Install LLVM/Clang (Windows)
+        if: runner.os == 'Windows'
+        run: |
+          choco install llvm -y --no-progress
+          echo "LIBCLANG_PATH=C:\Program Files\LLVM\bin" >> $env:GITHUB_ENV
+      - name: Run drift-unreal-lint's fixture tests
+        working-directory: bindings/unreal/drift-unreal-lint
+        run: cargo test
+
   csharp-analyzer-test:
     name: Drift.Analyzers test (${{ matrix.os }})
     strategy:
