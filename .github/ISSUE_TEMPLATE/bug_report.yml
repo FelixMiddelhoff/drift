@@ -1,0 +1,54 @@
+name: Bug report
+description: Something in Drift behaves incorrectly (a rule false-positives, false-negatives, or crashes).
+labels: ["bug"]
+body:
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened
+      description: What did you do, what did you expect, what actually happened.
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Drift version
+      description: Output of `cargo dylint --lib drift --version` (or NuGet package version, once Drift.Analyzers exists).
+    validations:
+      required: true
+  - type: dropdown
+    id: component
+    attributes:
+      label: Component
+      options:
+        - drift-lint (Rust/dylint)
+        - Drift.Analyzers (C#/Roslyn)
+        - Docs
+        - Other/unsure
+    validations:
+      required: true
+  - type: dropdown
+    id: kind
+    attributes:
+      label: Kind
+      options:
+        - False positive (flagged code that isn't actually a determinism hazard)
+        - False negative (missed a real determinism hazard)
+        - Crash / panic / hang
+        - Other
+    validations:
+      required: true
+  - type: textarea
+    id: repro
+    attributes:
+      label: Minimal reproduction
+      description: A small code snippet is usually enough — false positives/negatives are only actionable with something reproducible.
+    validations:
+      required: false
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      description: OS, Rust version, dylint version (or IDE/Roslyn version for the C# analyzer).
+    validations:
+      required: false

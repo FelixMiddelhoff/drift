@@ -1,0 +1,23 @@
+name: DCO
+
+on:
+  pull_request:
+
+jobs:
+  dco-check:
+    name: Signed-off-by check
+    runs-on: ubuntu-latest
+    # DCO sign-off attests a human contributor has the right to submit
+    # code under this project's license -- it doesn't mean anything for
+    # Dependabot's own automated version-bump commits, which it never
+    # adds a Signed-off-by trailer to. Without this, every single
+    # Dependabot PR fails this check permanently (confirmed: all 10 of
+    # this repo's first Dependabot PRs did, right after enabling it).
+    if: github.actor != 'dependabot[bot]'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: tim-actions/dco@v1.1.0
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}

@@ -1,0 +1,32 @@
+version: 2
+updates:
+  # The Cargo workspace — drift-lint, drift-lint-testing, and the example
+  # crates all resolve through the one root Cargo.lock.
+  - package-ecosystem: "cargo"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 10
+    groups:
+      # Bundles routine patch/minor bumps into one PR instead of one per
+      # crate — a determinism-sensitive project still wants to review
+      # dependency changes, just not fifty separate review threads for
+      # a week of patch releases.
+      cargo-minor-patch:
+        update-types: ["minor", "patch"]
+
+  # GitHub Actions workflow dependencies (actions/checkout, dtolnay/
+  # rust-toolchain, etc.) — pinned by tag, same reasoning as pinning any
+  # other dependency.
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 5
+
+  # bindings/csharp/Drift.Analyzers — added once Phase 2 (the Roslyn
+  # analyzer) actually exists as a .csproj/NuGet-consuming project.
+  # - package-ecosystem: "nuget"
+  #   directory: "/bindings/csharp"
+  #   schedule:
+  #     interval: "weekly"

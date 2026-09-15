@@ -1,0 +1,11 @@
+[package]
+name = "drift-lint"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Static lints catching game-simulation non-determinism (unordered-container iteration, unseeded RNG, wall-clock reads, etc.) before they cause a rollback-netcode desync."
+
+# crate-type = ["cdylib", "rlib"] — dylint lint libraries are cdylibs;
+# add this once real dylint wiring lands.
+

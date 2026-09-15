@@ -1,0 +1,25 @@
+name: Feature request
+description: Propose a new rule, or new tool behavior/API.
+labels: ["enhancement"]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: What problem does this solve
+      description: The concrete determinism bug this would have caught, or the concrete workflow this doesn't currently handle well — not just "it would be nice if."
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed approach
+      description: Sketch the rule/API/behavior if you have one in mind. Not required — happy to discuss shape in the issue.
+    validations:
+      required: false
+  - type: checkboxes
+    id: scope
+    attributes:
+      label: Scope check
+      options:
+        - label: This is a non-trivial change (new rule, new suppression mechanism, new language/engine target) — I understand this may need discussion before implementation.
+          required: false

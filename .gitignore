@@ -1,0 +1,9 @@
+/target
+.claude/
+
+# bindings/csharp/Drift.Analyzers — standard .NET/Roslyn analyzer project
+# generated output, never committed (lands once Phase 2 starts).
+bindings/csharp/**/bin/
+bindings/csharp/**/obj/
+
+/docs/book

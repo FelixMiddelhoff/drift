@@ -1,0 +1,40 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  fmt-and-lint:
+    name: fmt + clippy
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo fmt --all -- --check
+      - run: cargo clippy --workspace --all-targets --all-features -- -D warnings
+
+  core-test:
+    name: test (${{ matrix.os }})
+    needs: fmt-and-lint
+    strategy:
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo test --workspace --all-features
+
+  # Once drift-lint wraps dylint (drift-planning/drift-plan.md §4/§10):
+  # a job here should run `cargo dylint --lib drift` against
+  # drift-lint-testing's fixture corpus and examples/minimal-rust,
+  # asserting known-good code stays clean and known-violation fixtures
+  # actually lint.
+  # dylint-fixtures:
