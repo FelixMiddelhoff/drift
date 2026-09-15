@@ -11,6 +11,7 @@ struct Unit {
     id: usize, // drift::usize_in_hashed_state
 }
 
+#[allow(clippy::for_kv_map)] // intentional drift::hashmap_iter demo, not a real bug
 fn main() {
     let units: HashMap<u32, u32> = HashMap::new();
     for (_id, _unit) in units.iter() {
