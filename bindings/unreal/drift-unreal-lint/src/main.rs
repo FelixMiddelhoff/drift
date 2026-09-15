@@ -3,10 +3,12 @@
 //! LLVM package ships `clang-c` + `libclang.lib` only, not the full
 //! LibTooling/AST headers a real clang-tidy check needs to build against).
 //!
-//! First rule: `float_outside_fixed_step`, ported from the Rust/C# taxonomy
-//! (see D:\Claude\drift-planning\drift-godot-unreal-plan.md §4/§6). Opt-in
-//! only: does nothing unless `tick_reachable_roots` is configured, same
-//! design as drift-lint's own dylint.toml-driven reachability scoping.
+//! Two rules, ported from the Rust/C# taxonomy (see
+//! D:\Claude\drift-planning\drift-godot-unreal-plan.md §4/§6):
+//! `unseeded_rng` fires unconditionally, repo-wide, same as its Rust/C#
+//! counterparts. `float_outside_fixed_step` is opt-in only: does nothing
+//! unless `tick_reachable_roots` is configured, same design as
+//! drift-lint's own dylint.toml-driven reachability scoping.
 
 use anyhow::{bail, Context, Result};
 use clang::{Clang, Entity, EntityKind, Index};
@@ -157,6 +159,8 @@ struct Finding {
     file: PathBuf,
     line: u32,
     column: u32,
+    rule: &'static str,
+    message: String,
 }
 
 fn scan_float_chains(body: Entity, findings: &mut Vec<Finding>) {
@@ -177,6 +181,10 @@ fn scan_float_chains(body: Entity, findings: &mut Vec<Finding>) {
                     file: loc.file.map(|f| f.get_path()).unwrap_or_default(),
                     line: loc.line,
                     column: loc.column,
+                    rule: "float_outside_fixed_step",
+                    message: "float arithmetic reachable from tick-reachable code; \
+                              non-associative reordering can desync across platforms"
+                        .to_string(),
                 });
             }
         }
@@ -187,6 +195,82 @@ fn scan_float_chains(body: Entity, findings: &mut Vec<Finding>) {
         }
     }
     visit(body, false, findings);
+}
+
+/// Unreal's global RNG (`FMath::Rand`/`FRand`/etc., all backed by the same
+/// process-global `appRand`-style state) is seeded from OS/engine entropy
+/// unless a project explicitly calls `FMath::RandInit`/`SRandInit` with a
+/// tracked value — same hazard as Rust's `rand::thread_rng()`. Fires
+/// unconditionally, no reachability scoping needed: unlike float
+/// arithmetic, a raw call to one of these is *always* worth flagging, not
+/// just inside simulation code — mirrors `drift::unseeded_rng`'s own
+/// unconditional behavior on the Rust side.
+///
+/// Matched against the call's own source spelling, not the resolved
+/// declaration's qualified name — a real bug hit building this: `FMath`
+/// (`Engine/.../UnrealMathUtility.h`) is `struct FMath : public
+/// FPlatformMath`, and `Rand`/`FRand` are actually declared on the base
+/// (`FGenericPlatformMath` or a platform-specific typedef of it), so
+/// `FMath::FRand()`'s resolved declaration has a *different* qualified
+/// name than the class name written at the call site. Every real call in
+/// Lyra's own source (`grep`-confirmed) is still spelled `FMath::...`, so
+/// matching the literal call-site tokens sidesteps the inheritance chain
+/// entirely instead of trying to enumerate every platform's base struct.
+const UNSEEDED_RNG_FUNCS: &[&str] = &[
+    "FMath::Rand",
+    "FMath::RandRange",
+    "FMath::RandHelper",
+    "FMath::FRand",
+    "FMath::FRandRange",
+    "FMath::RandBool",
+    "FMath::VRand",
+    "FMath::VRandCone",
+    "FMath::VRandCone2D",
+];
+
+/// The call's callee spelling exactly as written at the call site (e.g.
+/// `"FMath::FRand"`), by tokenizing up to the opening `(` — see
+/// `UNSEEDED_RNG_FUNCS` for why this is matched instead of the resolved
+/// declaration's qualified name.
+fn call_site_spelling(entity: &Entity) -> Option<String> {
+    let range = entity.get_range()?;
+    let mut spelling = String::new();
+    for token in range.tokenize() {
+        let text = token.get_spelling();
+        if text == "(" {
+            break;
+        }
+        spelling.push_str(&text);
+    }
+    Some(spelling)
+}
+
+fn scan_unseeded_rng(tu_root: Entity, findings: &mut Vec<Finding>) {
+    fn visit(entity: Entity, findings: &mut Vec<Finding>) {
+        if entity.get_kind() == EntityKind::CallExpr {
+            if let Some(spelling) = call_site_spelling(&entity) {
+                if UNSEEDED_RNG_FUNCS.contains(&spelling.as_str()) {
+                    if let Some(range) = entity.get_range() {
+                        let loc = range.get_start().get_spelling_location();
+                        findings.push(Finding {
+                            file: loc.file.map(|f| f.get_path()).unwrap_or_default(),
+                            line: loc.line,
+                            column: loc.column,
+                            rule: "unseeded_rng",
+                            message: format!(
+                                "{spelling}() reads Unreal's global RNG, which is not seeded \
+                                 deterministically by default; differs per peer/run"
+                            ),
+                        });
+                    }
+                }
+            }
+        }
+        for child in entity.get_children() {
+            visit(child, findings);
+        }
+    }
+    visit(tu_root, findings);
 }
 
 fn collect_call_edges(body: Entity, caller: &str, edges: &mut HashMap<String, HashSet<String>>) {
@@ -214,14 +298,6 @@ fn run(compile_commands_path: &Path, config_path: Option<&Path>) -> Result<i32> 
         None => Config::default(),
     };
 
-    if config.tick_reachable_roots.is_empty() {
-        // Opt-in only, same rationale as drift-lint's dylint.toml-gated
-        // reachability rules: without configured roots, blanket-flagging
-        // float arithmetic across a whole UE codebase would be far too
-        // noisy to be useful.
-        return Ok(0);
-    }
-
     let text = std::fs::read_to_string(compile_commands_path)
         .with_context(|| format!("reading {}", compile_commands_path.display()))?;
     let commands: Vec<CompileCommand> = serde_json::from_str(&text)?;
@@ -240,6 +316,16 @@ fn run(compile_commands_path: &Path, config_path: Option<&Path>) -> Result<i32> 
         if args.is_empty() {
             continue;
         }
+        // The JSON Compilation Database spec requires relative paths in
+        // `arguments`/`command` to resolve against `directory`, not the
+        // caller's own cwd — real, confirmed the hard way: real UBT
+        // response files use relative `-I../Plugins/...` include paths
+        // meant to resolve against `directory` (here Engine/Source), and
+        // without this every file transitively including a plugin header
+        // hits a fatal "file not found" partway through, silently
+        // truncating that TU's AST to whatever was parsed before the
+        // failure — a real, large undercount, not just a cosmetic diag.
+        let _ = std::env::set_current_dir(&cmd.directory);
         // args[0] is always the compiler executable per the JSON
         // Compilation Database spec — not a real compiler flag, drop it
         // like argv[0]. Real UBT invokes `clang-cl.exe`, whose MSVC-style
@@ -260,6 +346,18 @@ fn run(compile_commands_path: &Path, config_path: Option<&Path>) -> Result<i32> 
         if is_cl_driver {
             args.insert(0, "--driver-mode=cl".to_string());
         }
+        // Real, confirmed: this LLVM install's own AVX512 intrinsic
+        // headers (avx512fintrin.h etc., pulled in transitively once
+        // real headers resolve) reference builtins this exact clang
+        // frontend doesn't implement (e.g.
+        // `__builtin_elementwise_fshr`) — a handful of real but
+        // irrelevant errors, confined to system intrinsic headers, that
+        // otherwise hit clang's default `-ferror-limit=20` and abort the
+        // whole parse before ever reaching the target file's own code.
+        // Disabling the limit is the standard fix for exactly this in
+        // static-analysis tooling: keep going, collect the AST for
+        // everything past the noise instead of giving up on it.
+        args.push("-ferror-limit=0".to_string());
 
         let parse = index
             .parser(&cmd.file)
@@ -279,6 +377,13 @@ fn run(compile_commands_path: &Path, config_path: Option<&Path>) -> Result<i32> 
             tus.len(),
             commands.len()
         );
+    }
+
+    let mut findings = Vec::new();
+
+    // unseeded_rng: unconditional, every parsed TU, no config needed.
+    for (_file, tu) in &tus {
+        scan_unseeded_rng(tu.get_entity(), &mut findings);
     }
 
     let mut bodies: HashMap<String, Entity> = HashMap::new();
@@ -309,41 +414,48 @@ fn run(compile_commands_path: &Path, config_path: Option<&Path>) -> Result<i32> 
         }
     }
 
-    let roots: HashSet<String> = config.tick_reachable_roots.iter().cloned().collect();
-    let exempt: HashSet<String> = config.fixed_step_functions.iter().cloned().collect();
+    // float_outside_fixed_step: opt-in only, same rationale as
+    // drift-lint's dylint.toml-gated reachability rules — without
+    // configured roots, blanket-flagging float arithmetic across a whole
+    // UE codebase would be far too noisy to be useful.
+    if !config.tick_reachable_roots.is_empty() {
+        let roots: HashSet<String> = config.tick_reachable_roots.iter().cloned().collect();
+        let exempt: HashSet<String> = config.fixed_step_functions.iter().cloned().collect();
 
-    let mut reachable: HashSet<String> = HashSet::new();
-    let mut queue: VecDeque<String> = roots.into_iter().collect();
-    while let Some(name) = queue.pop_front() {
-        if !reachable.insert(name.clone()) {
-            continue;
-        }
-        if let Some(callees) = edges.get(&name) {
-            for callee in callees {
-                if !reachable.contains(callee) {
-                    queue.push_back(callee.clone());
+        let mut reachable: HashSet<String> = HashSet::new();
+        let mut queue: VecDeque<String> = roots.into_iter().collect();
+        while let Some(name) = queue.pop_front() {
+            if !reachable.insert(name.clone()) {
+                continue;
+            }
+            if let Some(callees) = edges.get(&name) {
+                for callee in callees {
+                    if !reachable.contains(callee) {
+                        queue.push_back(callee.clone());
+                    }
                 }
             }
         }
-    }
 
-    let mut findings = Vec::new();
-    for name in &reachable {
-        if exempt.contains(name) {
-            continue;
-        }
-        if let Some(body) = bodies.get(name) {
-            scan_float_chains(*body, &mut findings);
+        for name in &reachable {
+            if exempt.contains(name) {
+                continue;
+            }
+            if let Some(body) = bodies.get(name) {
+                scan_float_chains(*body, &mut findings);
+            }
         }
     }
 
     findings.sort_by(|a, b| (&a.file, a.line, a.column).cmp(&(&b.file, b.line, b.column)));
     for f in &findings {
         println!(
-            "{}:{}:{}: warning: float arithmetic reachable from tick-reachable code; non-associative reordering can desync across platforms [drift-unreal::float_outside_fixed_step]",
+            "{}:{}:{}: warning: {} [drift-unreal::{}]",
             f.file.display(),
             f.line,
-            f.column
+            f.column,
+            f.message,
+            f.rule
         );
     }
 
@@ -355,7 +467,8 @@ fn main() -> Result<()> {
     if args.len() < 2 {
         bail!(
             "usage: drift-unreal-lint <compile_commands.json> [config.toml]\n\
-             does nothing unless config.toml sets tick_reachable_roots"
+             unseeded_rng always runs; float_outside_fixed_step needs \
+             config.toml's tick_reachable_roots"
         );
     }
     let compile_commands = PathBuf::from(&args[1]);

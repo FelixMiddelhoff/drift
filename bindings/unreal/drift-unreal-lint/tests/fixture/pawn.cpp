@@ -3,12 +3,19 @@
 // into a Simulate helper) to exercise reachability scoping without a full
 // engine dependency for this tool's own tests.
 
+// Real UE's FMath, trimmed to the one static method this fixture needs.
+struct FMath
+{
+    static float Rand();
+};
+
 class ATestPawn
 {
 public:
     void Tick(float DeltaTime);
     void Simulate(float DeltaTime);
     void NotReached(float DeltaTime);
+    float RollRandom();
 
     float Velocity = 0.0f;
     float Position = 0.0f;
@@ -32,4 +39,11 @@ void ATestPawn::Simulate(float DeltaTime)
 void ATestPawn::NotReached(float DeltaTime)
 {
     Velocity = Velocity + DeltaTime * 9.8f;
+}
+
+// unseeded_rng fires here unconditionally, with or without any config —
+// unlike float_outside_fixed_step, it doesn't need reachability scoping.
+float ATestPawn::RollRandom()
+{
+    return FMath::Rand();
 }
