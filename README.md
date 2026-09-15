@@ -2,11 +2,42 @@
 
 [![License: MIT OR Apache-2.0](https://img.shields.io/badge/license-MIT%20OR%20Apache--2.0-blue.svg)](#license)
 
-Static lints that catch game-simulation non-determinism — unordered-container iteration, unseeded RNG, wall-clock reads, float ops outside a fixed step, and more — before they cause a lockstep/rollback-netcode desync, instead of debugging the desync after the fact.
+Static lints that catch game-simulation non-determinism — `HashMap`/`HashSet` iteration, unseeded RNG, wall-clock reads, unordered parallelism, pointer-width fields on hashed state — before they cause a lockstep/rollback-netcode desync, instead of debugging the desync after the fact.
 
-Companion to [Foldback](https://github.com/FelixMiddelhoff/foldback) (runtime desync detection and bisection) and [Poncelet](https://github.com/FelixMiddelhoff/poncelet) (a bit-exact ballistics library used as a real-world dogfood target here): drift prevents what it can at build time, Foldback finds what slips through at runtime.
+Companion to [Foldback](https://github.com/FelixMiddelhoff/foldback) (runtime desync detection and bisection): drift prevents what it can at build time, Foldback finds what slips through at runtime.
 
-Full plan and design rationale: [drift-planning/drift-plan.md](../drift-planning/drift-plan.md).
+## Pick your language
+
+| Language | What you get |
+|---|---|
+| Rust | `crates/drift-lint`, a [dylint](https://github.com/trailofbits/dylint) lint library, 5 rules |
+| C# / Unity | `bindings/csharp/Drift.Analyzers`, a Roslyn analyzer, 5 rules (DRIFT0001–0005) — works in any C# project; Unity-specific rules are scoped to `UnityEngine.*` types |
+
+Full rule reference, one entry per rule with a real example and fix: [docs/rule-catalog.md](docs/rule-catalog.md).
+
+## Rust quickstart
+
+```bash
+cargo install cargo-dylint dylint-link
+```
+
+```bash
+cargo dylint --path crates/drift-lint --workspace
+```
+
+(`--path` works against a local clone; a `--git https://github.com/FelixMiddelhoff/drift` install works the same way once this is pushed. Not published to crates.io — see [docs/rule-catalog.md](docs/rule-catalog.md) for why, and `cargo dylint`'s own docs for the full CLI.)
+
+## C# / Unity quickstart
+
+Reference the built `Drift.Analyzers.dll` as an `Analyzer` item in your `.csproj`:
+
+```xml
+<ItemGroup>
+  <Analyzer Include="path/to/Drift.Analyzers.dll" />
+</ItemGroup>
+```
+
+(A NuGet package isn't published yet — `dotnet pack bindings/csharp/Drift.Analyzers` builds one locally in the correct `analyzers/dotnet/cs/` layout that VS/Rider/VS Code auto-load on install.)
 
 ## License
 

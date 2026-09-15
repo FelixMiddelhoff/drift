@@ -5,6 +5,13 @@ edition = "2021"
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/FelixMiddelhoff/drift"
 description = "dylint lints catching game-simulation non-determinism before it causes a rollback-netcode desync."
+# Cannot be published to crates.io: crates.io rejects any dependency
+# without a crates.io version, and clippy_utils is deliberately never
+# published there (its own README says it "provides no stability
+# guarantees") — confirmed for real via `cargo publish --dry-run`, not
+# assumed. Same reason dylint's own example lint libraries are never
+# published either; install via `cargo dylint` pointing at this repo
+# (git or --path), not `cargo install`/crates.io.
 publish = false
 
 [lib]

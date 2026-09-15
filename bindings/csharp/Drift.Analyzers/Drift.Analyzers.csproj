@@ -8,9 +8,33 @@
     <EnforceExtendedAnalyzerRules>true</EnforceExtendedAnalyzerRules>
   </PropertyGroup>
 
+  <PropertyGroup>
+    <PackageId>Drift.Analyzers</PackageId>
+    <Version>0.0.1</Version>
+    <Authors>Felix Middelhoff and Drift contributors</Authors>
+    <Description>Roslyn analyzer catching game-simulation non-determinism (Dictionary/HashSet iteration, unseeded RNG, wall-clock reads, unordered parallelism, pointer-width fields on records) before it causes a rollback-netcode desync. Works in any C# project; Unity-specific rules are scoped to UnityEngine types.</Description>
+    <PackageTags>determinism;rollback-netcode;lockstep;unity;desync;analyzer;roslyn</PackageTags>
+    <PackageLicenseExpression>MIT OR Apache-2.0</PackageLicenseExpression>
+    <RepositoryUrl>https://github.com/FelixMiddelhoff/drift</RepositoryUrl>
+    <PackageProjectUrl>https://github.com/FelixMiddelhoff/drift</PackageProjectUrl>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
+    <DevelopmentDependency>true</DevelopmentDependency>
+    <NoPackageAnalysis>true</NoPackageAnalysis>
+  </PropertyGroup>
+
   <ItemGroup>
     <PackageReference Include="Microsoft.CodeAnalysis.CSharp" Version="4.11.0" PrivateAssets="all" />
     <PackageReference Include="Microsoft.CodeAnalysis.Analyzers" Version="3.11.0" PrivateAssets="all" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- The standard Roslyn-analyzer NuGet layout: the analyzer DLL under
+         analyzers/dotnet/cs is what makes an IDE (VS/Rider/VS Code) load
+         it automatically on install — a normal `lib/` placement would not.
+         `IncludeBuildOutput=false` above stops the default lib/ copy so
+         this is the only place the DLL ends up. -->
+    <None Include="$(OutputPath)\$(AssemblyName).dll" Pack="true" PackagePath="analyzers/dotnet/cs" Visible="false" />
+    <None Include="..\..\..\README.md" Pack="true" PackagePath="\" Visible="false" />
   </ItemGroup>
 
 </Project>
