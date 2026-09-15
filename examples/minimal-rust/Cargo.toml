@@ -5,4 +5,4 @@ edition.workspace = true
 publish = false
 
 [dependencies]
-rand = "0.9"
+rand = "0.10"
