@@ -2,11 +2,11 @@
 
 [package]
 name = "drift-unreal-lint"
-version = "0.0.1"
+version = "0.1.0"
 edition = "2021"
 license = "MIT OR Apache-2.0"
 publish = false
-description = "Standalone determinism checker for Unreal C++ (stock Clang, no engine fork) — see D:\\Claude\\drift-planning\\drift-godot-unreal-plan.md"
+description = "Standalone determinism checker for Unreal C++ (stock Clang, no engine fork)"
 
 [[bin]]
 name = "drift-unreal-lint"
