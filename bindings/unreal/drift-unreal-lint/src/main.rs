@@ -3,13 +3,19 @@
 //! LLVM package ships `clang-c` + `libclang.lib` only, not the full
 //! LibTooling/AST headers a real clang-tidy check needs to build against).
 //!
-//! Three rules, ported from the Rust/C# taxonomy (see
+//! Four rules, ported from the Rust/C# taxonomy (see
 //! D:\Claude\drift-planning\drift-godot-unreal-plan.md §4/§6/§8):
-//! `unseeded_rng` and `wallclock_read` fire unconditionally, repo-wide,
-//! same as their Rust/C# counterparts. `float_outside_fixed_step` is
-//! opt-in only: does nothing unless `tick_reachable_roots` is configured,
-//! same design as drift-lint's own dylint.toml-driven reachability
-//! scoping.
+//! `unseeded_rng`, `wallclock_read`, and `hashmap_iter` fire
+//! unconditionally, repo-wide, same as their Rust/C# counterparts.
+//! `float_outside_fixed_step` is opt-in only: does nothing unless
+//! `tick_reachable_roots` is configured, same design as drift-lint's own
+//! dylint.toml-driven reachability scoping. `hashmap_iter` is detected by
+//! type (a range-based-for or `.CreateIterator()`/`.CreateConstIterator()`
+//! over a `TMap`/`TSet`), not by call-site spelling — the type-based
+//! approach naturally excludes the collect-then-sort false-positive shape
+//! the Rust side's own `hashmap_iter` had to special-case, since a
+//! `TArray` sorted after being built from a map's contents is a different
+//! type than `TMap`/`TSet`.
 
 use anyhow::{bail, Context, Result};
 use clang::{Clang, Entity, EntityKind, Index};
@@ -299,6 +305,100 @@ const WALLCLOCK_READ_FUNCS: &[&str] = &[
     "FDateTime::UtcNow",
 ];
 
+/// `true` if a type's display name (as libclang prints it, e.g. `"const
+/// TMap<FGameplayTag, FActiveGamePhaseEntry, ...> &"`) is a `TMap`/`TSet` —
+/// hash-backed containers (`Containers/Map.h`/`Set.h`, confirmed by
+/// reading the real headers: both select between `TSparseSet`/`TCompactSet`
+/// internally), unlike `TSortedMap`/`TSortedSet`'s own existence being
+/// itself evidence the base containers carry no ordering guarantee.
+/// Deliberately excludes `TSortedMap`/`TSortedSet`/`TMultiMap` — scope
+/// matches the plan's own taxonomy entry, not every hash-adjacent
+/// container.
+fn is_map_or_set_type(display_name: &str) -> bool {
+    let trimmed = display_name.trim_start_matches("const ").trim();
+    trimmed.starts_with("TMap<") || trimmed.starts_with("TSet<")
+}
+
+/// Range-based-for detection: `ForRangeStmt`'s own compiler-desugared
+/// children (confirmed with a real `-ast-dump`, not assumed) are a `NULL`
+/// placeholder followed by a `DeclStmt` wrapping the synthesized `auto&&
+/// __range = <container>;` binding — the binding's `VarDecl` (one level
+/// below the `DeclStmt`, not a direct child of the `ForRangeStmt` itself)
+/// has the container's own type, so both levels are checked.
+fn for_range_over_map_or_set(entity: &Entity) -> bool {
+    entity.get_children().iter().any(|child| {
+        let self_match = child
+            .get_type()
+            .map(|t| is_map_or_set_type(&t.get_display_name()))
+            .unwrap_or(false);
+        self_match
+            || child.get_children().iter().any(|grandchild| {
+                grandchild
+                    .get_type()
+                    .map(|t| is_map_or_set_type(&t.get_display_name()))
+                    .unwrap_or(false)
+            })
+    })
+}
+
+/// `.CreateIterator()`/`.CreateConstIterator()` on a `TMap`/`TSet` — the
+/// explicit-iterator counterpart to range-based-for iteration, same
+/// hazard. A `CallExpr`'s own first child is the `MemberRefExpr` for a
+/// method call (`Map.CreateIterator()`), whose own first child is the
+/// receiver expression.
+fn is_map_or_set_create_iterator_call(entity: &Entity) -> bool {
+    if entity.get_kind() != EntityKind::CallExpr {
+        return false;
+    }
+    let Some(member_ref) = entity.get_children().into_iter().next() else {
+        return false;
+    };
+    if member_ref.get_kind() != EntityKind::MemberRefExpr {
+        return false;
+    }
+    let Some(name) = member_ref.get_name() else {
+        return false;
+    };
+    if name != "CreateIterator" && name != "CreateConstIterator" {
+        return false;
+    }
+    member_ref
+        .get_children()
+        .into_iter()
+        .next()
+        .and_then(|receiver| receiver.get_type())
+        .map(|t| is_map_or_set_type(&t.get_display_name()))
+        .unwrap_or(false)
+}
+
+fn scan_hashmap_iter(tu_root: Entity, findings: &mut Vec<Finding>) {
+    fn visit(entity: Entity, findings: &mut Vec<Finding>) {
+        let hit = match entity.get_kind() {
+            EntityKind::ForRangeStmt => for_range_over_map_or_set(&entity),
+            EntityKind::CallExpr => is_map_or_set_create_iterator_call(&entity),
+            _ => false,
+        };
+        if hit {
+            if let Some(range) = entity.get_range() {
+                let loc = range.get_start().get_spelling_location();
+                findings.push(Finding {
+                    file: loc.file.map(|f| f.get_path()).unwrap_or_default(),
+                    line: loc.line,
+                    column: loc.column,
+                    rule: "hashmap_iter",
+                    message: "iterating a TMap/TSet — order is not guaranteed stable across \
+                              peers"
+                        .to_string(),
+                });
+            }
+        }
+        for child in entity.get_children() {
+            visit(child, findings);
+        }
+    }
+    visit(tu_root, findings);
+}
+
 fn scan_wallclock_read(tu_root: Entity, findings: &mut Vec<Finding>) {
     fn visit(entity: Entity, findings: &mut Vec<Finding>) {
         if entity.get_kind() == EntityKind::CallExpr {
@@ -435,11 +535,12 @@ fn run(compile_commands_path: &Path, config_path: Option<&Path>) -> Result<i32> 
 
     let mut findings = Vec::new();
 
-    // unseeded_rng, wallclock_read: unconditional, every parsed TU, no
-    // config needed.
+    // unseeded_rng, wallclock_read, hashmap_iter: unconditional, every
+    // parsed TU, no config needed.
     for (_file, tu) in &tus {
         scan_unseeded_rng(tu.get_entity(), &mut findings);
         scan_wallclock_read(tu.get_entity(), &mut findings);
+        scan_hashmap_iter(tu.get_entity(), &mut findings);
     }
 
     let mut bodies: HashMap<String, Entity> = HashMap::new();
@@ -535,7 +636,7 @@ fn main() -> Result<()> {
     if args.len() < 2 {
         bail!(
             "usage: drift-unreal-lint <compile_commands.json> [config.toml]\n\
-             unseeded_rng and wallclock_read always run; \
+             unseeded_rng, wallclock_read, and hashmap_iter always run; \
              float_outside_fixed_step needs config.toml's \
              tick_reachable_roots"
         );

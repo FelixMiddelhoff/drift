@@ -9,6 +9,54 @@ struct FMath
     static float Rand();
 };
 
+// Minimal synthetic stand-ins for TMap/TSet/TArray — just enough shape
+// (begin()/end() for range-based-for, CreateIterator() for TMap) to
+// exercise hashmap_iter's type-based detection without a full engine
+// dependency.
+template <typename K, typename V>
+struct TMap
+{
+    struct Iterator
+    {
+        V* Ptr;
+        V& operator*() const;
+        void operator++();
+        bool operator!=(const Iterator& Other) const;
+    };
+    Iterator begin() const;
+    Iterator end() const;
+    Iterator CreateIterator() const;
+};
+
+template <typename T>
+struct TSet
+{
+    struct Iterator
+    {
+        T* Ptr;
+        T& operator*() const;
+        void operator++();
+        bool operator!=(const Iterator& Other) const;
+    };
+    Iterator begin() const;
+    Iterator end() const;
+};
+
+template <typename T>
+struct TArray
+{
+    struct Iterator
+    {
+        T* Ptr;
+        T& operator*() const;
+        void operator++();
+        bool operator!=(const Iterator& Other) const;
+    };
+    Iterator begin() const;
+    Iterator end() const;
+    void Sort();
+};
+
 class ATestPawn
 {
 public:
@@ -17,9 +65,14 @@ public:
     void NotReached(float DeltaTime);
     float RollRandom();
     double ReadClock();
+    void IterateMap();
+    void UseCreateIterator();
+    void IterateSortedArray();
 
     float Velocity = 0.0f;
     float Position = 0.0f;
+    TMap<int, float> ScoreByPlayer;
+    TArray<int> SortedIds;
 };
 
 void ATestPawn::Tick(float DeltaTime)
@@ -62,4 +115,34 @@ struct FPlatformTime
 double ATestPawn::ReadClock()
 {
     return FPlatformTime::Seconds();
+}
+
+// hashmap_iter fires here unconditionally — range-based-for over a TMap.
+void ATestPawn::IterateMap()
+{
+    for (auto& Pair : ScoreByPlayer)
+    {
+        (void)Pair;
+    }
+}
+
+// hashmap_iter also fires on an explicit .CreateIterator() call, not just
+// range-based-for.
+void ATestPawn::UseCreateIterator()
+{
+    auto It = ScoreByPlayer.CreateIterator();
+    (void)It;
+}
+
+// Must NOT fire: iterating a TArray (even one built from a map's values
+// and sorted) is a different type than TMap/TSet — the type-based
+// detection naturally excludes it, no separate collect-then-sort
+// special-case needed the way the Rust rule required.
+void ATestPawn::IterateSortedArray()
+{
+    SortedIds.Sort();
+    for (auto& Id : SortedIds)
+    {
+        (void)Id;
+    }
 }
