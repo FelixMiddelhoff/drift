@@ -36,11 +36,21 @@ jobs:
         with:
           user: ${{ secrets.NUGET_USER }}
 
+      - name: Debug - raw push response
+        working-directory: bindings/csharp/Drift.Analyzers
+        run: |
+          FILE=$(ls out/*.nupkg)
+          curl -s -o /tmp/response.txt -w "HTTP status: %{http_code}\n" \
+            -X PUT "https://www.nuget.org/api/v2/package/" \
+            -H "X-NuGet-ApiKey: ${{ steps.login.outputs.NUGET_API_KEY }}" \
+            -F "package=@$FILE"
+          echo "--- response body ---"
+          cat /tmp/response.txt
+
       - name: NuGet push
         working-directory: bindings/csharp/Drift.Analyzers
         run: |
           dotnet nuget push out/*.nupkg \
             --api-key ${{ steps.login.outputs.NUGET_API_KEY }} \
             --source https://api.nuget.org/v3/index.json \
-            --skip-duplicate \
-            --verbosity detailed
+            --skip-duplicate
