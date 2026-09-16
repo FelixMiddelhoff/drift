@@ -3,19 +3,20 @@
 //! LLVM package ships `clang-c` + `libclang.lib` only, not the full
 //! LibTooling/AST headers a real clang-tidy check needs to build against).
 //!
-//! Five rules, ported from the Rust/C# taxonomy (see
+//! All 5 rules from the Rust/C# taxonomy, ported (see
 //! D:\Claude\drift-planning\drift-godot-unreal-plan.md §4/§6/§8):
-//! `unseeded_rng`, `wallclock_read`, `hashmap_iter`, and
-//! `unordered_parallelism` fire unconditionally, repo-wide, same as their
-//! Rust/C# counterparts. `float_outside_fixed_step` is opt-in only: does
-//! nothing unless `tick_reachable_roots` is configured, same design as
-//! drift-lint's own dylint.toml-driven reachability scoping.
-//! `hashmap_iter` is detected by type (a range-based-for or
-//! `.CreateIterator()`/`.CreateConstIterator()` over a `TMap`/`TSet`), not
-//! by call-site spelling — the type-based approach naturally excludes the
-//! collect-then-sort false-positive shape the Rust side's own
-//! `hashmap_iter` had to special-case, since a `TArray` sorted after being
-//! built from a map's contents is a different type than `TMap`/`TSet`.
+//! `unseeded_rng`, `wallclock_read`, `hashmap_iter`,
+//! `unordered_parallelism`, and `usize_in_hashed_state` fire
+//! unconditionally, repo-wide, same as their Rust/C# counterparts.
+//! `float_outside_fixed_step` is opt-in only: does nothing unless
+//! `tick_reachable_roots` is configured, same design as drift-lint's own
+//! dylint.toml-driven reachability scoping. `hashmap_iter` is detected by
+//! type (a range-based-for or `.CreateIterator()`/`.CreateConstIterator()`
+//! over a `TMap`/`TSet`), not by call-site spelling — the type-based
+//! approach naturally excludes the collect-then-sort false-positive shape
+//! the Rust side's own `hashmap_iter` had to special-case, since a
+//! `TArray` sorted after being built from a map's contents is a different
+//! type than `TMap`/`TSet`.
 
 use anyhow::{bail, Context, Result};
 use clang::{Clang, Entity, EntityKind, Index};
@@ -476,6 +477,123 @@ fn scan_unordered_parallelism(tu_root: Entity, findings: &mut Vec<Finding>) {
     visit(tu_root, findings);
 }
 
+/// `SIZE_T`/`size_t`/`uintptr_t`/`intptr_t` are pointer-width — 32-bit on
+/// Win32, 64-bit on Win64/most platforms, exactly the Rust `usize`/C#
+/// `nint` hazard `drift::usize_in_hashed_state`/`DRIFT0005` already flag.
+/// Matched by spelling, same reasoning as everywhere else in this tool:
+/// syntactic, not a full platform-ABI resolution.
+fn is_pointer_width_type(display_name: &str) -> bool {
+    matches!(display_name, "SIZE_T" | "size_t" | "uintptr_t" | "intptr_t")
+}
+
+/// Every pointer-width-typed field, keyed by its containing struct/class's
+/// own qualified name — the lookup `scan_usize_in_hashed_state` uses to
+/// check a `GetTypeHash` overload's parameter type against.
+fn collect_pointer_width_fields(tu_root: Entity) -> HashMap<String, HashSet<String>> {
+    fn visit(entity: Entity, map: &mut HashMap<String, HashSet<String>>) {
+        if entity.get_kind() == EntityKind::FieldDecl {
+            if let (Some(t), Some(parent), Some(field_name)) = (
+                entity.get_type(),
+                entity.get_semantic_parent(),
+                entity.get_name(),
+            ) {
+                if is_pointer_width_type(&t.get_display_name()) {
+                    map.entry(qualified_name(&parent))
+                        .or_default()
+                        .insert(field_name);
+                }
+            }
+        }
+        for child in entity.get_children() {
+            visit(child, map);
+        }
+    }
+    let mut map = HashMap::new();
+    visit(tu_root, &mut map);
+    map
+}
+
+/// Unreal has no `#[derive(Hash)]`/`record` equivalent — hashing is always
+/// a hand-written free function `GetTypeHash(const T&)` found via
+/// Argument-Dependent Lookup, so this mirrors C#'s `DRIFT0005` hand-
+/// written-`GetHashCode()` path more than the Rust side's own struct-
+/// derive-attribute scan: (1) find pointer-width-typed fields, (2) check
+/// whether they're referenced anywhere in the body of a `GetTypeHash`
+/// overload taking that field's containing type by const-ref — same
+/// syntactic, conservative reference-detection (not real dataflow) C#'s
+/// own version already uses: a field merely read, not actually folded
+/// into the returned hash, still gets flagged, a known, documented
+/// limitation inherited rather than re-solved here. Fires unconditionally,
+/// no reachability scoping — a hash function's own body isn't a
+/// per-frame-tick concern the way arithmetic reachability is.
+fn scan_usize_in_hashed_state(tu_root: Entity, findings: &mut Vec<Finding>) {
+    let fields_by_struct = collect_pointer_width_fields(tu_root);
+    if fields_by_struct.is_empty() {
+        return;
+    }
+
+    fn param_struct_name(param: &Entity) -> Option<String> {
+        let ty = param.get_type()?;
+        let pointee = ty.get_pointee_type().unwrap_or(ty);
+        let decl = pointee.get_declaration()?;
+        Some(qualified_name(&decl))
+    }
+
+    fn visit(
+        entity: Entity,
+        fields_by_struct: &HashMap<String, HashSet<String>>,
+        findings: &mut Vec<Finding>,
+    ) {
+        if entity.get_kind() == EntityKind::FunctionDecl
+            && entity.is_definition()
+            && entity.get_name().as_deref() == Some("GetTypeHash")
+        {
+            let params = entity.get_arguments().unwrap_or_default();
+            if params.len() == 1 {
+                if let Some(struct_name) = param_struct_name(&params[0]) {
+                    if let Some(flagged_fields) = fields_by_struct.get(&struct_name) {
+                        scan_body_for_flagged_fields(entity, flagged_fields, findings);
+                    }
+                }
+            }
+        }
+        for child in entity.get_children() {
+            visit(child, fields_by_struct, findings);
+        }
+    }
+
+    fn scan_body_for_flagged_fields(
+        entity: Entity,
+        flagged_fields: &HashSet<String>,
+        findings: &mut Vec<Finding>,
+    ) {
+        if entity.get_kind() == EntityKind::MemberRefExpr {
+            if let Some(name) = entity.get_name() {
+                if flagged_fields.contains(&name) {
+                    if let Some(range) = entity.get_range() {
+                        let loc = range.get_start().get_spelling_location();
+                        findings.push(Finding {
+                            file: loc.file.map(|f| f.get_path()).unwrap_or_default(),
+                            line: loc.line,
+                            column: loc.column,
+                            rule: "usize_in_hashed_state",
+                            message: format!(
+                                "'{name}' is SIZE_T/uintptr_t/intptr_t and used in a \
+                                 GetTypeHash overload — width varies across platforms"
+                            ),
+                        });
+                    }
+                }
+            }
+        }
+        for child in entity.get_children() {
+            scan_body_for_flagged_fields(child, flagged_fields, findings);
+        }
+    }
+
+    visit(tu_root, &fields_by_struct, findings);
+}
+
 fn collect_call_edges(body: Entity, caller: &str, edges: &mut HashMap<String, HashSet<String>>) {
     fn visit(entity: Entity, caller: &str, edges: &mut HashMap<String, HashSet<String>>) {
         if entity.get_kind() == EntityKind::CallExpr {
@@ -584,13 +702,15 @@ fn run(compile_commands_path: &Path, config_path: Option<&Path>) -> Result<i32> 
 
     let mut findings = Vec::new();
 
-    // unseeded_rng, wallclock_read, hashmap_iter, unordered_parallelism:
-    // unconditional, every parsed TU, no config needed.
+    // unseeded_rng, wallclock_read, hashmap_iter, unordered_parallelism,
+    // usize_in_hashed_state: unconditional, every parsed TU, no config
+    // needed.
     for (_file, tu) in &tus {
         scan_unseeded_rng(tu.get_entity(), &mut findings);
         scan_wallclock_read(tu.get_entity(), &mut findings);
         scan_hashmap_iter(tu.get_entity(), &mut findings);
         scan_unordered_parallelism(tu.get_entity(), &mut findings);
+        scan_usize_in_hashed_state(tu.get_entity(), &mut findings);
     }
 
     let mut bodies: HashMap<String, Entity> = HashMap::new();
@@ -686,9 +806,10 @@ fn main() -> Result<()> {
     if args.len() < 2 {
         bail!(
             "usage: drift-unreal-lint <compile_commands.json> [config.toml]\n\
-             unseeded_rng, wallclock_read, hashmap_iter, and \
-             unordered_parallelism always run; float_outside_fixed_step \
-             needs config.toml's tick_reachable_roots"
+             unseeded_rng, wallclock_read, hashmap_iter, \
+             unordered_parallelism, and usize_in_hashed_state always run; \
+             float_outside_fixed_step needs config.toml's \
+             tick_reachable_roots"
         );
     }
     let compile_commands = PathBuf::from(&args[1]);

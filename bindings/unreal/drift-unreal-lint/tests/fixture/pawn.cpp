@@ -172,3 +172,31 @@ void ATestPawn::LogAsync()
 {
     AsyncTask(0, []() {});
 }
+
+// Real UE's SIZE_T is itself a platform typedef — matched by spelling
+// here too, same as FPlatformTime, not by resolving to its canonical
+// underlying integer type.
+using SIZE_T = unsigned long long;
+
+struct FUnitId
+{
+    SIZE_T Handle;
+    int DisplayIndex;
+};
+
+// usize_in_hashed_state fires here unconditionally — Handle (SIZE_T) is
+// referenced inside a GetTypeHash overload for FUnitId, Unreal's
+// free-function-found-via-ADL hashing convention (no derive/record
+// equivalent to scan instead).
+unsigned GetTypeHash(const FUnitId& Id)
+{
+    return static_cast<unsigned>(Id.Handle);
+}
+
+// Must NOT fire: RawHandle is SIZE_T, but never referenced inside any
+// GetTypeHash overload — a pointer-width field alone isn't the hazard,
+// only one actually read by a hash function is.
+struct FUnusedHandle
+{
+    SIZE_T RawHandle;
+};
