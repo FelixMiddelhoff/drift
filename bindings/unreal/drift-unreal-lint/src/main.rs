@@ -24,6 +24,8 @@ use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::path::{Path, PathBuf};
 use std::process::Command;
+use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::Mutex;
 
 #[derive(Debug, Default, Deserialize)]
 struct Config {
@@ -789,6 +791,22 @@ fn run_worker(
     Ok(())
 }
 
+/// Number of worker processes to run concurrently — one OS process per
+/// translation unit already isolates crashes (see `run_worker`'s own doc
+/// comment); running several at once is purely a throughput win, bounded by
+/// available parallelism so this doesn't oversubscribe the machine.
+/// `DRIFT_UNREAL_JOBS` overrides it (e.g. to cap memory use on a machine
+/// where each libclang parse is large — real cost seen dogfooding: a full
+/// 388-file Lyra sweep peaks well above one TU's worth of memory per
+/// concurrent worker).
+fn worker_job_count() -> usize {
+    std::env::var("DRIFT_UNREAL_JOBS")
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .filter(|&n: &usize| n > 0)
+        .unwrap_or_else(|| std::thread::available_parallelism().map_or(4, |n| n.get()))
+}
+
 fn run(compile_commands_path: &Path, config_path: Option<&Path>) -> Result<i32> {
     let config = load_config(config_path)?;
     let commands = load_commands(compile_commands_path)?;
@@ -800,24 +818,47 @@ fn run(compile_commands_path: &Path, config_path: Option<&Path>) -> Result<i32> 
     let mut float_candidates: Vec<(String, Finding)> = Vec::new();
     let mut worker_ok_count = 0usize;
 
-    for (i, cmd) in commands.iter().enumerate() {
-        let mut worker = Command::new(&exe);
-        worker
-            .arg("--worker")
-            .arg(i.to_string())
-            .arg(compile_commands_path);
-        if let Some(p) = config_path {
-            worker.arg(p);
+    // Work-stealing pool: each thread pulls the next unclaimed command index
+    // off a shared atomic counter and spawns+waits on that one worker
+    // process, so a slow/large TU on one thread doesn't stall the others
+    // the way a fixed static split would. Results are collected into a
+    // per-index slot rather than a shared Vec so no per-item lock
+    // contention is needed while workers are running.
+    let next_index = AtomicUsize::new(0);
+    let results: Vec<Mutex<Option<Option<WorkerOutput>>>> =
+        (0..commands.len()).map(|_| Mutex::new(None)).collect();
+    let job_count = worker_job_count().min(commands.len().max(1));
+
+    std::thread::scope(|scope| {
+        for _ in 0..job_count {
+            scope.spawn(|| loop {
+                let i = next_index.fetch_add(1, Ordering::Relaxed);
+                if i >= commands.len() {
+                    break;
+                }
+                let mut worker = Command::new(&exe);
+                worker
+                    .arg("--worker")
+                    .arg(i.to_string())
+                    .arg(compile_commands_path);
+                if let Some(p) = config_path {
+                    worker.arg(p);
+                }
+                let output = worker.output();
+                let parsed = output.ok().and_then(|o| {
+                    if o.status.success() {
+                        serde_json::from_slice::<WorkerOutput>(&o.stdout).ok()
+                    } else {
+                        None
+                    }
+                });
+                *results[i].lock().unwrap() = Some(parsed);
+            });
         }
-        let output = worker.output();
-        let parsed = output.ok().and_then(|o| {
-            if o.status.success() {
-                serde_json::from_slice::<WorkerOutput>(&o.stdout).ok()
-            } else {
-                None
-            }
-        });
-        match parsed {
+    });
+
+    for (i, cmd) in commands.iter().enumerate() {
+        match results[i].lock().unwrap().take().flatten() {
             Some(worker_output) => {
                 worker_ok_count += 1;
                 findings.extend(worker_output.findings);
