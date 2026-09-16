@@ -21,11 +21,15 @@ fn unconditional_rules_fire_on_bare_calls_only() {
     assert_eq!(out.status.code(), Some(1), "stdout was: {stdout}");
 
     let lines: Vec<&str> = stdout.lines().collect();
-    assert_eq!(lines.len(), 2, "expected exactly 2 findings, got: {stdout}");
+    assert_eq!(lines.len(), 4, "expected exactly 4 findings, got: {stdout}");
     assert!(lines[0].contains("player.gd:8:8"));
     assert!(lines[0].contains("[drift-godot::unseeded_rng]"));
     assert!(lines[1].contains("player.gd:20:12"));
     assert!(lines[1].contains("[drift-godot::wallclock_read]"));
+    assert!(lines[2].contains("player.gd:34:2"));
+    assert!(lines[2].contains("[drift-godot::unordered_parallelism]"));
+    assert!(lines[3].contains("player.gd:62:14"));
+    assert!(lines[3].contains("[drift-godot::float_outside_fixed_step]"));
 
     // A member call on a project-owned seedable RNG instance
     // (`seeded_rng.randi_range(...)`) must never fire — only the bare
@@ -35,4 +39,15 @@ fn unconditional_rules_fire_on_bare_calls_only() {
     // fire — only `Time.get_ticks_msec()` does.
     assert!(!stdout.contains("player.gd:24"));
     assert!(!stdout.contains("player.gd:27"));
+    // An unrelated TaskQueue's own `add_task` method must never fire —
+    // only `WorkerThreadPool.add_task()` does.
+    assert!(!stdout.contains("player.gd:40"));
+    assert!(!stdout.contains("player.gd:44"));
+    // Pure untyped-variable arithmetic (`var c = a + b`, neither typed)
+    // must never fire, even reachable from _physics_process — no type
+    // inference for untyped locals.
+    assert!(!stdout.contains("player.gd:59"));
+    // Same float-arithmetic shape as apply_gravity, but never called from
+    // _process/_physics_process — reachability scoping must exclude it.
+    assert!(!stdout.contains("player.gd:68"));
 }

@@ -12,10 +12,10 @@ Companion to [Foldback](https://github.com/FelixMiddelhoff/foldback) (runtime de
 
 | Language | What you get |
 |---|---|
-| Rust | `crates/drift-lint`, a [dylint](https://github.com/trailofbits/dylint) lint library, 5 rules |
-| C# / Unity | `bindings/csharp/Drift.Analyzers`, a Roslyn analyzer, 5 rules (DRIFT0001–0005) — works in any C# project; Unity-specific rules are scoped to `UnityEngine.*` types |
-| C++ / Unreal | `bindings/unreal/drift-unreal-lint`, a standalone binary over stock LLVM/Clang (no engine fork needed), full 5-rule taxonomy parity, against a project's `compile_commands.json` |
-| GDScript / Godot | `bindings/godot/drift-godot-lint`, a standalone binary over [gdck-syntax](https://crates.io/crates/gdck-syntax) (pure Rust, no engine dependency), 2 rules (`hashmap_iter`/`usize_in_hashed_state` don't apply to GDScript, see below) |
+| Rust | `crates/drift-lint`, a [dylint](https://github.com/trailofbits/dylint) lint library, 6 rules |
+| C# / Unity | `bindings/csharp/Drift.Analyzers`, a Roslyn analyzer, 5 rules (DRIFT0001–0005) — works in any C# project; Unity-specific rules are scoped to `UnityEngine.*` types; `float_outside_fixed_step` not ported here |
+| C++ / Unreal | `bindings/unreal/drift-unreal-lint`, a standalone binary over stock LLVM/Clang (no engine fork needed), full 6-rule taxonomy parity, against a project's `compile_commands.json` |
+| GDScript / Godot | `bindings/godot/drift-godot-lint`, a standalone binary over [gdck-syntax](https://crates.io/crates/gdck-syntax) (pure Rust, no engine dependency), 4 of 6 rules (`hashmap_iter`/`usize_in_hashed_state` don't apply to GDScript, see below) |
 
 Full rule reference, one entry per rule with a real example and fix: [docs/rule-catalog.md](docs/rule-catalog.md).
 
@@ -71,7 +71,7 @@ Uses stock LLVM/Clang directly (the `clang` crate over libclang) — no forked c
 cargo run --manifest-path bindings/godot/drift-godot-lint/Cargo.toml -- <file.gd | project directory>
 ```
 
-`unseeded_rng` and `wallclock_read` both run unconditionally — the only 2 rules built so far. Pure Rust, no engine dependency (via [gdck-syntax](https://crates.io/crates/gdck-syntax)). See [docs/rule-catalog.md](docs/rule-catalog.md) for why the other 3 rules don't (yet, or ever) apply here.
+`unseeded_rng`, `wallclock_read`, and `unordered_parallelism` run unconditionally. `float_outside_fixed_step` runs automatically wherever `_process`/`_physics_process` is defined — no config file needed, unlike the Rust/Unreal sides (Godot's own tick entry points are fixed, well-known method names). Pure Rust, no engine dependency (via [gdck-syntax](https://crates.io/crates/gdck-syntax)). See [docs/rule-catalog.md](docs/rule-catalog.md) for why the other 2 rules don't apply here.
 
 ## License
 

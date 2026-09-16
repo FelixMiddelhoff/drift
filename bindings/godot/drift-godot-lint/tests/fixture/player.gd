@@ -27,3 +27,42 @@ func get_ticks_msec() -> int:
 
 func call_local_get_ticks_msec() -> int:
 	return get_ticks_msec()
+
+# unordered_parallelism fires here unconditionally — no reachability
+# scoping needed, same as the two rules above.
+func spawn_workers() -> void:
+	WorkerThreadPool.add_task(func(): pass)
+
+# Must NOT fire: an unrelated object's own "add_task" method is not
+# WorkerThreadPool.add_task — matched by the full Type.method spelling,
+# same distinction wallclock_read's own negative case above relies on.
+class TaskQueue:
+	func add_task(job: Callable) -> void:
+		job.call()
+
+func queue_locally(queue: TaskQueue) -> void:
+	queue.add_task(func(): pass)
+
+var gravity := 9.8
+
+# float_outside_fixed_step fires here — delta is explicitly typed float,
+# so gravity * delta (and the whole velocity_y + ... chain around it)
+# qualifies. Deduped to one warning on the outermost expression, not one
+# per operator.
+func _physics_process(delta: float) -> void:
+	apply_gravity(delta)
+	# Real, disclosed limitation: pure untyped-variable arithmetic is
+	# invisible to this rule (no type inference) — must NOT fire even
+	# though it's reachable from _physics_process.
+	var a = 1
+	var b = 2
+	var c = a + b
+
+func apply_gravity(delta: float) -> void:
+	velocity_y = velocity_y + gravity * delta
+
+# Must NOT fire: same float-arithmetic shape as apply_gravity, but never
+# called from _process/_physics_process — reachability scoping excludes
+# it, same as the Rust/Unreal sides' own NotReached-style negative case.
+func unrelated_math(delta: float) -> float:
+	return 1.0 + delta * 2.0
