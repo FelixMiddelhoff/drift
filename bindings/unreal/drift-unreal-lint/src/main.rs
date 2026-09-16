@@ -20,9 +20,10 @@
 
 use anyhow::{bail, Context, Result};
 use clang::{Clang, Entity, EntityKind, Index};
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::path::{Path, PathBuf};
+use std::process::Command;
 
 #[derive(Debug, Default, Deserialize)]
 struct Config {
@@ -163,12 +164,34 @@ fn is_float_type(entity: &Entity) -> bool {
         .unwrap_or(false)
 }
 
+#[derive(Serialize, Deserialize)]
 struct Finding {
     file: PathBuf,
     line: u32,
     column: u32,
-    rule: &'static str,
+    rule: String,
     message: String,
+}
+
+/// One worker process's complete output for a single translation unit —
+/// crossing the process boundary as JSON is what makes a crash in one TU
+/// (real, confirmed: a full 388-file Lyra sweep hit a genuine libclang
+/// `LLVM ERROR: out of memory` that took the whole single-process run down
+/// with it, per docs/rule-catalog.md's "real, disclosed cost") harmless to
+/// every other TU instead of losing the entire run's findings.
+///
+/// `float_candidates` intentionally ignores reachability — a worker only
+/// sees its own TU, not the whole program's call graph, so it can't know
+/// which of its own functions are tick-reachable. It scans every function
+/// body unconditionally and tags each finding with its owning function's
+/// qualified name; the orchestrator (the only place with the full,
+/// cross-TU call graph) filters by reachability after aggregating every
+/// worker's edges.
+#[derive(Serialize, Deserialize, Default)]
+struct WorkerOutput {
+    findings: Vec<Finding>,
+    edges: Vec<(String, String)>,
+    float_candidates: Vec<(String, Finding)>,
 }
 
 fn scan_float_chains(body: Entity, findings: &mut Vec<Finding>) {
@@ -189,7 +212,7 @@ fn scan_float_chains(body: Entity, findings: &mut Vec<Finding>) {
                     file: loc.file.map(|f| f.get_path()).unwrap_or_default(),
                     line: loc.line,
                     column: loc.column,
-                    rule: "float_outside_fixed_step",
+                    rule: "float_outside_fixed_step".to_string(),
                     message: "float arithmetic reachable from tick-reachable code; \
                               non-associative reordering can desync across platforms"
                         .to_string(),
@@ -264,7 +287,7 @@ fn scan_unseeded_rng(tu_root: Entity, findings: &mut Vec<Finding>) {
                             file: loc.file.map(|f| f.get_path()).unwrap_or_default(),
                             line: loc.line,
                             column: loc.column,
-                            rule: "unseeded_rng",
+                            rule: "unseeded_rng".to_string(),
                             message: format!(
                                 "{spelling}() reads Unreal's global RNG, which is not seeded \
                                  deterministically by default; differs per peer/run"
@@ -386,7 +409,7 @@ fn scan_hashmap_iter(tu_root: Entity, findings: &mut Vec<Finding>) {
                     file: loc.file.map(|f| f.get_path()).unwrap_or_default(),
                     line: loc.line,
                     column: loc.column,
-                    rule: "hashmap_iter",
+                    rule: "hashmap_iter".to_string(),
                     message: "iterating a TMap/TSet — order is not guaranteed stable across \
                               peers"
                         .to_string(),
@@ -411,7 +434,7 @@ fn scan_wallclock_read(tu_root: Entity, findings: &mut Vec<Finding>) {
                             file: loc.file.map(|f| f.get_path()).unwrap_or_default(),
                             line: loc.line,
                             column: loc.column,
-                            rule: "wallclock_read",
+                            rule: "wallclock_read".to_string(),
                             message: format!(
                                 "{spelling}() reads wallclock/OS time, which differs per \
                                  peer/run; do not fold it into simulated state"
@@ -459,7 +482,7 @@ fn scan_unordered_parallelism(tu_root: Entity, findings: &mut Vec<Finding>) {
                             file: loc.file.map(|f| f.get_path()).unwrap_or_default(),
                             line: loc.line,
                             column: loc.column,
-                            rule: "unordered_parallelism",
+                            rule: "unordered_parallelism".to_string(),
                             message: format!(
                                 "{spelling}() dispatches unordered parallel work; folding \
                                  its results into simulated state without a deterministic \
@@ -576,7 +599,7 @@ fn scan_usize_in_hashed_state(tu_root: Entity, findings: &mut Vec<Finding>) {
                             file: loc.file.map(|f| f.get_path()).unwrap_or_default(),
                             line: loc.line,
                             column: loc.column,
-                            rule: "usize_in_hashed_state",
+                            rule: "usize_in_hashed_state".to_string(),
                             message: format!(
                                 "'{name}' is SIZE_T/uintptr_t/intptr_t and used in a \
                                  GetTypeHash overload — width varies across platforms"
@@ -609,136 +632,223 @@ fn collect_call_edges(body: Entity, caller: &str, edges: &mut HashMap<String, Ha
     visit(body, caller, edges);
 }
 
-fn run(compile_commands_path: &Path, config_path: Option<&Path>) -> Result<i32> {
-    let config: Config = match config_path {
+fn load_config(config_path: Option<&Path>) -> Result<Config> {
+    match config_path {
         Some(p) => {
             let text = std::fs::read_to_string(p)
                 .with_context(|| format!("reading config {}", p.display()))?;
-            toml::from_str(&text).with_context(|| format!("parsing config {}", p.display()))?
+            Ok(toml::from_str(&text).with_context(|| format!("parsing config {}", p.display()))?)
         }
-        None => Config::default(),
-    };
+        None => Ok(Config::default()),
+    }
+}
 
+fn load_commands(compile_commands_path: &Path) -> Result<Vec<CompileCommand>> {
     let text = std::fs::read_to_string(compile_commands_path)
         .with_context(|| format!("reading {}", compile_commands_path.display()))?;
-    let commands: Vec<CompileCommand> = serde_json::from_str(&text)?;
+    Ok(serde_json::from_str(&text)?)
+}
 
-    let clang = Clang::new().map_err(|e| anyhow::anyhow!(e))?;
+/// Parses one `compile_commands.json` entry against a fresh `Index` —
+/// exactly the per-command argument munging `run`'s own predecessor did
+/// inline, unchanged, just factored out so a worker process can call it
+/// for its single assigned command.
+fn parse_one<'i>(index: &'i Index, cmd: &CompileCommand) -> Option<clang::TranslationUnit<'i>> {
+    let mut args = cmd.arguments.clone().unwrap_or_else(|| {
+        cmd.command
+            .as_deref()
+            .map(split_command)
+            .unwrap_or_default()
+    });
+    if args.is_empty() {
+        return None;
+    }
+    // The JSON Compilation Database spec requires relative paths in
+    // `arguments`/`command` to resolve against `directory`, not the
+    // caller's own cwd — real, confirmed the hard way: real UBT
+    // response files use relative `-I../Plugins/...` include paths
+    // meant to resolve against `directory` (here Engine/Source), and
+    // without this every file transitively including a plugin header
+    // hits a fatal "file not found" partway through, silently
+    // truncating that TU's AST to whatever was parsed before the
+    // failure — a real, large undercount, not just a cosmetic diag.
+    let _ = std::env::set_current_dir(&cmd.directory);
+    // args[0] is always the compiler executable per the JSON
+    // Compilation Database spec — not a real compiler flag, drop it
+    // like argv[0]. Real UBT invokes `clang-cl.exe`, whose MSVC-style
+    // flags (`/FI`, `/Fo`, `/clang:...`) libclang's default
+    // GCC-style argv parser won't understand — `--driver-mode=cl`
+    // (the same thing baked into the `clang-cl` binary's own name)
+    // switches it, checked here rather than assumed since this
+    // tool's own fixture uses plain `clang++`-style args instead.
+    let is_cl_driver = args[0].to_ascii_lowercase().contains("clang-cl");
+    args.remove(0);
+    args = expand_response_files(args, 0);
+    // The source file is already passed separately as the parser's
+    // own `file` argument below; passing it a second time inside
+    // `arguments` — which a `.rsp` file's first line does — makes
+    // `clang_parseTranslationUnit2` return `CXError_ASTReadError`
+    // (code 4), not a normal parse failure. Confirmed the hard way.
+    args.retain(|a| a != &cmd.file);
+    if is_cl_driver {
+        args.insert(0, "--driver-mode=cl".to_string());
+    }
+    // Real, confirmed: this LLVM install's own AVX512 intrinsic
+    // headers (avx512fintrin.h etc., pulled in transitively once
+    // real headers resolve) reference builtins this exact clang
+    // frontend doesn't implement (e.g.
+    // `__builtin_elementwise_fshr`) — a handful of real but
+    // irrelevant errors, confined to system intrinsic headers, that
+    // otherwise hit clang's default `-ferror-limit=20` and abort the
+    // whole parse before ever reaching the target file's own code.
+    // Disabling the limit is the standard fix for exactly this in
+    // static-analysis tooling: keep going, collect the AST for
+    // everything past the noise instead of giving up on it.
+    args.push("-ferror-limit=0".to_string());
+
+    index
+        .parser(&cmd.file)
+        .arguments(&args)
+        .detailed_preprocessing_record(false)
+        .parse()
+        .ok()
+}
+
+/// Parses one command and runs every rule against just that TU — the
+/// whole of one worker process's job. Unconditional rules go straight
+/// into `findings`; `float_outside_fixed_step` candidates are collected
+/// for *every* function definition in this TU, tagged by owning function,
+/// regardless of reachability — this TU alone can't know what's
+/// tick-reachable, only the orchestrator (with every worker's edges
+/// aggregated) can, so the reachability filter happens there instead.
+fn process_command(cmd: &CompileCommand, config: &Config) -> WorkerOutput {
+    let mut out = WorkerOutput::default();
+
+    let clang = match Clang::new() {
+        Ok(c) => c,
+        Err(_) => return out,
+    };
     let index = Index::new(&clang, false, false);
+    let Some(tu) = parse_one(&index, cmd) else {
+        return out;
+    };
 
-    let mut tus = Vec::new();
-    for cmd in &commands {
-        let mut args = cmd.arguments.clone().unwrap_or_else(|| {
-            cmd.command
-                .as_deref()
-                .map(split_command)
-                .unwrap_or_default()
-        });
-        if args.is_empty() {
-            continue;
-        }
-        // The JSON Compilation Database spec requires relative paths in
-        // `arguments`/`command` to resolve against `directory`, not the
-        // caller's own cwd — real, confirmed the hard way: real UBT
-        // response files use relative `-I../Plugins/...` include paths
-        // meant to resolve against `directory` (here Engine/Source), and
-        // without this every file transitively including a plugin header
-        // hits a fatal "file not found" partway through, silently
-        // truncating that TU's AST to whatever was parsed before the
-        // failure — a real, large undercount, not just a cosmetic diag.
-        let _ = std::env::set_current_dir(&cmd.directory);
-        // args[0] is always the compiler executable per the JSON
-        // Compilation Database spec — not a real compiler flag, drop it
-        // like argv[0]. Real UBT invokes `clang-cl.exe`, whose MSVC-style
-        // flags (`/FI`, `/Fo`, `/clang:...`) libclang's default
-        // GCC-style argv parser won't understand — `--driver-mode=cl`
-        // (the same thing baked into the `clang-cl` binary's own name)
-        // switches it, checked here rather than assumed since this
-        // tool's own fixture uses plain `clang++`-style args instead.
-        let is_cl_driver = args[0].to_ascii_lowercase().contains("clang-cl");
-        args.remove(0);
-        args = expand_response_files(args, 0);
-        // The source file is already passed separately as the parser's
-        // own `file` argument below; passing it a second time inside
-        // `arguments` — which a `.rsp` file's first line does — makes
-        // `clang_parseTranslationUnit2` return `CXError_ASTReadError`
-        // (code 4), not a normal parse failure. Confirmed the hard way.
-        args.retain(|a| a != &cmd.file);
-        if is_cl_driver {
-            args.insert(0, "--driver-mode=cl".to_string());
-        }
-        // Real, confirmed: this LLVM install's own AVX512 intrinsic
-        // headers (avx512fintrin.h etc., pulled in transitively once
-        // real headers resolve) reference builtins this exact clang
-        // frontend doesn't implement (e.g.
-        // `__builtin_elementwise_fshr`) — a handful of real but
-        // irrelevant errors, confined to system intrinsic headers, that
-        // otherwise hit clang's default `-ferror-limit=20` and abort the
-        // whole parse before ever reaching the target file's own code.
-        // Disabling the limit is the standard fix for exactly this in
-        // static-analysis tooling: keep going, collect the AST for
-        // everything past the noise instead of giving up on it.
-        args.push("-ferror-limit=0".to_string());
+    scan_unseeded_rng(tu.get_entity(), &mut out.findings);
+    scan_wallclock_read(tu.get_entity(), &mut out.findings);
+    scan_hashmap_iter(tu.get_entity(), &mut out.findings);
+    scan_unordered_parallelism(tu.get_entity(), &mut out.findings);
+    scan_usize_in_hashed_state(tu.get_entity(), &mut out.findings);
 
-        let parse = index
-            .parser(&cmd.file)
-            .arguments(&args)
-            .detailed_preprocessing_record(false)
-            .parse();
-        let tu = match parse {
-            Ok(tu) => tu,
-            Err(_) => continue,
-        };
-        tus.push((PathBuf::from(&cmd.directory).join(&cmd.file), tu));
-    }
-    let stats = std::env::var("DRIFT_UNREAL_STATS").is_ok();
-    if stats {
-        eprintln!(
-            "stats: {}/{} translation units parsed",
-            tus.len(),
-            commands.len()
-        );
-    }
-
-    let mut findings = Vec::new();
-
-    // unseeded_rng, wallclock_read, hashmap_iter, unordered_parallelism,
-    // usize_in_hashed_state: unconditional, every parsed TU, no config
-    // needed.
-    for (_file, tu) in &tus {
-        scan_unseeded_rng(tu.get_entity(), &mut findings);
-        scan_wallclock_read(tu.get_entity(), &mut findings);
-        scan_hashmap_iter(tu.get_entity(), &mut findings);
-        scan_unordered_parallelism(tu.get_entity(), &mut findings);
-        scan_usize_in_hashed_state(tu.get_entity(), &mut findings);
-    }
-
-    let mut bodies: HashMap<String, Entity> = HashMap::new();
-    let mut edges: HashMap<String, HashSet<String>> = HashMap::new();
-
-    for (_file, tu) in &tus {
+    if !config.tick_reachable_roots.is_empty() {
+        let mut edges: HashMap<String, HashSet<String>> = HashMap::new();
         tu.get_entity().visit_children(|cur, _parent| {
             if is_function_like(cur.get_kind()) && cur.is_definition() {
                 let qname = qualified_name(&cur);
-                bodies.insert(qname.clone(), cur);
+                let mut chain_findings = Vec::new();
+                scan_float_chains(cur, &mut chain_findings);
+                for finding in chain_findings {
+                    out.float_candidates.push((qname.clone(), finding));
+                }
                 collect_call_edges(cur, &qname, &mut edges);
             }
             clang::EntityVisitResult::Recurse
         });
+        for (caller, callees) in edges {
+            for callee in callees {
+                out.edges.push((caller.clone(), callee));
+            }
+        }
+    }
+
+    out
+}
+
+/// Runs as a subprocess of `run`, one per `compile_commands.json` entry —
+/// the crash-isolation boundary. A real full-388-file Lyra sweep hit a
+/// genuine libclang `LLVM ERROR: out of memory` that took the whole
+/// single-process run down with it via a segfault (`docs/rule-catalog.md`,
+/// "real, disclosed cost") — this worker process can crash the same way,
+/// but now it only takes its own single TU down with it; the orchestrator
+/// (`run`) treats a failed/crashed worker as "no findings from this file"
+/// and keeps going, instead of losing every finding already collected.
+fn run_worker(
+    index: usize,
+    compile_commands_path: &Path,
+    config_path: Option<&Path>,
+) -> Result<()> {
+    let config = load_config(config_path)?;
+    let commands = load_commands(compile_commands_path)?;
+    let Some(cmd) = commands.get(index) else {
+        bail!(
+            "worker index {index} out of range ({} commands)",
+            commands.len()
+        );
+    };
+    let output = process_command(cmd, &config);
+    println!("{}", serde_json::to_string(&output)?);
+    Ok(())
+}
+
+fn run(compile_commands_path: &Path, config_path: Option<&Path>) -> Result<i32> {
+    let config = load_config(config_path)?;
+    let commands = load_commands(compile_commands_path)?;
+    let exe = std::env::current_exe().context("resolving own executable path")?;
+    let stats = std::env::var("DRIFT_UNREAL_STATS").is_ok();
+
+    let mut findings = Vec::new();
+    let mut edges: HashMap<String, HashSet<String>> = HashMap::new();
+    let mut float_candidates: Vec<(String, Finding)> = Vec::new();
+    let mut worker_ok_count = 0usize;
+
+    for (i, cmd) in commands.iter().enumerate() {
+        let mut worker = Command::new(&exe);
+        worker
+            .arg("--worker")
+            .arg(i.to_string())
+            .arg(compile_commands_path);
+        if let Some(p) = config_path {
+            worker.arg(p);
+        }
+        let output = worker.output();
+        let parsed = output.ok().and_then(|o| {
+            if o.status.success() {
+                serde_json::from_slice::<WorkerOutput>(&o.stdout).ok()
+            } else {
+                None
+            }
+        });
+        match parsed {
+            Some(worker_output) => {
+                worker_ok_count += 1;
+                findings.extend(worker_output.findings);
+                for (caller, callee) in worker_output.edges {
+                    edges.entry(caller).or_default().insert(callee);
+                }
+                float_candidates.extend(worker_output.float_candidates);
+            }
+            None => {
+                // A crashed or failed worker (real example: a genuine
+                // libclang out-of-memory abort on one Lyra file, see
+                // docs/rule-catalog.md) costs this one file's findings,
+                // not the whole run's — reported, not silently dropped.
+                eprintln!(
+                    "warning: worker for {} failed or crashed; skipping",
+                    cmd.file
+                );
+            }
+        }
     }
 
     if stats {
         eprintln!(
-            "stats: {} function/method definitions found, {} call edges",
-            bodies.len(),
-            edges.values().map(|v| v.len()).sum::<usize>()
+            "stats: {worker_ok_count}/{} translation units parsed",
+            commands.len()
         );
-        for root in &config.tick_reachable_roots {
-            eprintln!(
-                "stats: root '{root}' resolved: {}",
-                bodies.contains_key(root)
-            );
-        }
+        eprintln!(
+            "stats: {} call edges, {} float_outside_fixed_step candidates",
+            edges.values().map(|v| v.len()).sum::<usize>(),
+            float_candidates.len()
+        );
     }
 
     // float_outside_fixed_step: opt-in only, same rationale as
@@ -764,12 +874,9 @@ fn run(compile_commands_path: &Path, config_path: Option<&Path>) -> Result<i32> 
             }
         }
 
-        for name in &reachable {
-            if exempt.contains(name) {
-                continue;
-            }
-            if let Some(body) = bodies.get(name) {
-                scan_float_chains(*body, &mut findings);
+        for (owner, finding) in float_candidates {
+            if reachable.contains(&owner) && !exempt.contains(&owner) {
+                findings.push(finding);
             }
         }
     }
@@ -782,7 +889,7 @@ fn run(compile_commands_path: &Path, config_path: Option<&Path>) -> Result<i32> 
     // more than one expansion path; dedup on the exact reported location
     // rather than leaving misleadingly inflated finding counts.
     findings.sort_by(|a, b| {
-        (&a.file, a.line, a.column, a.rule).cmp(&(&b.file, b.line, b.column, b.rule))
+        (&a.file, a.line, a.column, &a.rule).cmp(&(&b.file, b.line, b.column, &b.rule))
     });
     findings.dedup_by(|a, b| {
         a.file == b.file && a.line == b.line && a.column == b.column && a.rule == b.rule
@@ -803,6 +910,17 @@ fn run(compile_commands_path: &Path, config_path: Option<&Path>) -> Result<i32> 
 
 fn main() -> Result<()> {
     let args: Vec<String> = std::env::args().collect();
+
+    // Hidden worker mode: `--worker <index> <compile_commands.json>
+    // [config.toml]`. `run` spawns itself with this once per TU — never a
+    // mode a user invokes directly.
+    if args.get(1).map(String::as_str) == Some("--worker") {
+        let index: usize = args[2].parse().context("worker index")?;
+        let compile_commands = PathBuf::from(&args[3]);
+        let config_path = args.get(4).map(PathBuf::from);
+        return run_worker(index, &compile_commands, config_path.as_deref());
+    }
+
     if args.len() < 2 {
         bail!(
             "usage: drift-unreal-lint <compile_commands.json> [config.toml]\n\
