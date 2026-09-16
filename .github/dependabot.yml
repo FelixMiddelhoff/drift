@@ -33,10 +33,28 @@ updates:
       interval: "weekly"
     open-pull-requests-limit: 5
 
+  # bindings/unreal/drift-unreal-lint is its own detached Cargo workspace
+  # (own Cargo.lock), same reasoning as crates/drift-lint above — a real
+  # gap found while adding the equivalent entry for bindings/godot below,
+  # fixed alongside it rather than left for later.
+  - package-ecosystem: "cargo"
+    directory: "/bindings/unreal/drift-unreal-lint"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 5
+
   # bindings/csharp — Drift.Analyzers + Drift.Analyzers.Tests, both
   # resolve through NuGet.
   - package-ecosystem: "nuget"
     directory: "/bindings/csharp"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 5
+
+  # bindings/godot/drift-godot-lint is its own detached Cargo workspace
+  # (own Cargo.lock), same reasoning as crates/drift-lint above.
+  - package-ecosystem: "cargo"
+    directory: "/bindings/godot/drift-godot-lint"
     schedule:
       interval: "weekly"
     open-pull-requests-limit: 5

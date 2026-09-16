@@ -15,7 +15,7 @@ just check
 
 This runs `cargo fmt --check`, `cargo clippy -D warnings`, and `cargo test --workspace` — matching the required CI job. Run it locally before pushing.
 
-`crates/drift-lint` (its own detached nightly workspace, needs `cargo-dylint`/`dylint-link`), `bindings/csharp/Drift.Analyzers` (`dotnet test`), and `bindings/unreal/drift-unreal-lint` (its own detached workspace, needs `LIBCLANG_PATH` pointing at a real LLVM install) each have their own test command — see each directory's own tests and the CI workflow (`.github/workflows/ci.yml`) for the exact invocations.
+`crates/drift-lint` (its own detached nightly workspace, needs `cargo-dylint`/`dylint-link`), `bindings/csharp/Drift.Analyzers` (`dotnet test`), `bindings/unreal/drift-unreal-lint` (its own detached workspace, needs `LIBCLANG_PATH` pointing at a real LLVM install), and `bindings/godot/drift-godot-lint` (its own detached workspace, pure Rust, no external toolchain needed) each have their own test command — see each directory's own tests and the CI workflow (`.github/workflows/ci.yml`) for the exact invocations.
 
 ## Toolchain
 
@@ -23,7 +23,7 @@ The Rust version is pinned in `rust-toolchain.toml`. `rustup` will pick it up au
 
 ## Rule-authoring changes
 
-Any change to a lint rule (`crates/drift-lint`, `bindings/csharp/Drift.Analyzers`, or `bindings/unreal/drift-unreal-lint`) is validated against that binding's own fixture corpus — a rule's false-positive/false-negative behavior is the actual product, not an implementation detail, so a rule change without an updated or added fixture won't be merged. See `drift-planning/drift-plan.md §7` (validation strategy) for why this matters more here than in a typical project.
+Any change to a lint rule (`crates/drift-lint`, `bindings/csharp/Drift.Analyzers`, `bindings/unreal/drift-unreal-lint`, or `bindings/godot/drift-godot-lint`) is validated against that binding's own fixture corpus — a rule's false-positive/false-negative behavior is the actual product, not an implementation detail, so a rule change without an updated or added fixture won't be merged. See `drift-planning/drift-plan.md §7` (validation strategy) for why this matters more here than in a typical project.
 
 ## Submitting a pull request
 

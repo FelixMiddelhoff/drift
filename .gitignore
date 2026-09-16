@@ -17,4 +17,8 @@ bindings/csharp/**/obj/
 # crates/drift-lint above), so its target dir isn't caught by /target.
 bindings/unreal/drift-unreal-lint/target/
 
+# bindings/godot/drift-godot-lint — same reasoning, its own detached
+# workspace.
+bindings/godot/drift-godot-lint/target/
+
 /docs/book

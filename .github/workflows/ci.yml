@@ -113,6 +113,27 @@ jobs:
         working-directory: bindings/unreal/drift-unreal-lint
         run: cargo test
 
+  # bindings/godot/drift-godot-lint is its own detached Cargo workspace,
+  # same reasoning as drift-lint/drift-unreal-lint above — but the
+  # simplest of the three: gdck-syntax is a pure-Rust parser, no external
+  # toolchain (no rustc-dev, no libclang) needed at all.
+  godot-lint-test:
+    name: drift-godot-lint test (${{ matrix.os }})
+    needs: fmt-and-lint
+    strategy:
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: bindings/godot/drift-godot-lint -> target
+      - name: Run drift-godot-lint's fixture tests
+        working-directory: bindings/godot/drift-godot-lint
+        run: cargo test
+
   csharp-analyzer-test:
     name: Drift.Analyzers test (${{ matrix.os }})
     strategy:

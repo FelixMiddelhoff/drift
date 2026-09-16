@@ -1,0 +1,17 @@
+[workspace]
+
+[package]
+name = "drift-godot-lint"
+version = "0.0.1"
+edition = "2021"
+license = "MIT OR Apache-2.0"
+publish = false
+description = "Standalone determinism checker for Godot GDScript (via gdck-syntax) — see D:\\Claude\\drift-planning\\drift-godot-unreal-plan.md"
+
+[[bin]]
+name = "drift-godot-lint"
+path = "src/main.rs"
+
+[dependencies]
+gdck-syntax = "0.8"
+anyhow = "1"

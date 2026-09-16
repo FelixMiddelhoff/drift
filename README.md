@@ -15,6 +15,7 @@ Companion to [Foldback](https://github.com/FelixMiddelhoff/foldback) (runtime de
 | Rust | `crates/drift-lint`, a [dylint](https://github.com/trailofbits/dylint) lint library, 5 rules |
 | C# / Unity | `bindings/csharp/Drift.Analyzers`, a Roslyn analyzer, 5 rules (DRIFT0001–0005) — works in any C# project; Unity-specific rules are scoped to `UnityEngine.*` types |
 | C++ / Unreal | `bindings/unreal/drift-unreal-lint`, a standalone binary over stock LLVM/Clang (no engine fork needed), full 5-rule taxonomy parity, against a project's `compile_commands.json` |
+| GDScript / Godot | `bindings/godot/drift-godot-lint`, a standalone binary over [gdck-syntax](https://crates.io/crates/gdck-syntax) (pure Rust, no engine dependency), 2 rules (`hashmap_iter`/`usize_in_hashed_state` don't apply to GDScript, see below) |
 
 Full rule reference, one entry per rule with a real example and fix: [docs/rule-catalog.md](docs/rule-catalog.md).
 
@@ -63,6 +64,14 @@ fixed_step_functions = ["UMyIntegrator::Step"]
 ```
 
 Uses stock LLVM/Clang directly (the `clang` crate over libclang) — no forked compiler, no custom clang-tidy check to build. See [docs/rule-catalog.md](docs/rule-catalog.md) for both rules' known limitations.
+
+## Godot quickstart
+
+```bash
+cargo run --manifest-path bindings/godot/drift-godot-lint/Cargo.toml -- <file.gd | project directory>
+```
+
+`unseeded_rng` and `wallclock_read` both run unconditionally — the only 2 rules built so far. Pure Rust, no engine dependency (via [gdck-syntax](https://crates.io/crates/gdck-syntax)). See [docs/rule-catalog.md](docs/rule-catalog.md) for why the other 3 rules don't (yet, or ever) apply here.
 
 ## License
 
