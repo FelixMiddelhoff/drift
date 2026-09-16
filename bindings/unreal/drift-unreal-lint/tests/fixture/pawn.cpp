@@ -16,6 +16,7 @@ public:
     void Simulate(float DeltaTime);
     void NotReached(float DeltaTime);
     float RollRandom();
+    double ReadClock();
 
     float Velocity = 0.0f;
     float Position = 0.0f;
@@ -46,4 +47,19 @@ void ATestPawn::NotReached(float DeltaTime)
 float ATestPawn::RollRandom()
 {
     return FMath::Rand();
+}
+
+// Real UE's FPlatformTime, trimmed to the one static method this fixture
+// needs — see main.rs's scan_wallclock_read comment for why the call is
+// matched by call-site spelling rather than resolved declaration.
+struct FPlatformTime
+{
+    static double Seconds();
+};
+
+// wallclock_read fires here unconditionally, same as unseeded_rng — no
+// reachability scoping needed.
+double ATestPawn::ReadClock()
+{
+    return FPlatformTime::Seconds();
 }

@@ -3,12 +3,13 @@
 //! LLVM package ships `clang-c` + `libclang.lib` only, not the full
 //! LibTooling/AST headers a real clang-tidy check needs to build against).
 //!
-//! Two rules, ported from the Rust/C# taxonomy (see
-//! D:\Claude\drift-planning\drift-godot-unreal-plan.md §4/§6):
-//! `unseeded_rng` fires unconditionally, repo-wide, same as its Rust/C#
-//! counterparts. `float_outside_fixed_step` is opt-in only: does nothing
-//! unless `tick_reachable_roots` is configured, same design as
-//! drift-lint's own dylint.toml-driven reachability scoping.
+//! Three rules, ported from the Rust/C# taxonomy (see
+//! D:\Claude\drift-planning\drift-godot-unreal-plan.md §4/§6/§8):
+//! `unseeded_rng` and `wallclock_read` fire unconditionally, repo-wide,
+//! same as their Rust/C# counterparts. `float_outside_fixed_step` is
+//! opt-in only: does nothing unless `tick_reachable_roots` is configured,
+//! same design as drift-lint's own dylint.toml-driven reachability
+//! scoping.
 
 use anyhow::{bail, Context, Result};
 use clang::{Clang, Entity, EntityKind, Index};
@@ -273,6 +274,59 @@ fn scan_unseeded_rng(tu_root: Entity, findings: &mut Vec<Finding>) {
     visit(tu_root, findings);
 }
 
+/// Wallclock/OS-time reads — same hazard as Rust's `wallclock_read`/C#'s
+/// DRIFT0003: a value that differs per peer/run must never feed simulated
+/// state directly. Fires unconditionally, no reachability scoping, same as
+/// `unseeded_rng`.
+///
+/// Matched by call-site spelling, not resolved declaration, same reasoning
+/// as `unseeded_rng` — verified here rather than assumed: `FPlatformTime`
+/// (`HAL/PlatformTime.h`) is a platform `typedef` (e.g. `typedef
+/// FWindowsPlatformTime FPlatformTime;` on Windows), and
+/// `FWindowsPlatformTime::Seconds/Cycles/Cycles64` are declared directly on
+/// that platform struct, not inherited from `FGenericPlatformTime` — so a
+/// call written as `FPlatformTime::Seconds()` resolves to
+/// `FWindowsPlatformTime::Seconds`, a different qualified name than the
+/// call-site text, same shape as `FMath`'s own base-class split.
+/// `FDateTime::Now`/`UtcNow` don't have this split (`FDateTime` is a plain
+/// struct declaring them directly), but are matched the same way for
+/// consistency and because it's already proven robust.
+const WALLCLOCK_READ_FUNCS: &[&str] = &[
+    "FPlatformTime::Seconds",
+    "FPlatformTime::Cycles",
+    "FPlatformTime::Cycles64",
+    "FDateTime::Now",
+    "FDateTime::UtcNow",
+];
+
+fn scan_wallclock_read(tu_root: Entity, findings: &mut Vec<Finding>) {
+    fn visit(entity: Entity, findings: &mut Vec<Finding>) {
+        if entity.get_kind() == EntityKind::CallExpr {
+            if let Some(spelling) = call_site_spelling(&entity) {
+                if WALLCLOCK_READ_FUNCS.contains(&spelling.as_str()) {
+                    if let Some(range) = entity.get_range() {
+                        let loc = range.get_start().get_spelling_location();
+                        findings.push(Finding {
+                            file: loc.file.map(|f| f.get_path()).unwrap_or_default(),
+                            line: loc.line,
+                            column: loc.column,
+                            rule: "wallclock_read",
+                            message: format!(
+                                "{spelling}() reads wallclock/OS time, which differs per \
+                                 peer/run; do not fold it into simulated state"
+                            ),
+                        });
+                    }
+                }
+            }
+        }
+        for child in entity.get_children() {
+            visit(child, findings);
+        }
+    }
+    visit(tu_root, findings);
+}
+
 fn collect_call_edges(body: Entity, caller: &str, edges: &mut HashMap<String, HashSet<String>>) {
     fn visit(entity: Entity, caller: &str, edges: &mut HashMap<String, HashSet<String>>) {
         if entity.get_kind() == EntityKind::CallExpr {
@@ -381,9 +435,11 @@ fn run(compile_commands_path: &Path, config_path: Option<&Path>) -> Result<i32> 
 
     let mut findings = Vec::new();
 
-    // unseeded_rng: unconditional, every parsed TU, no config needed.
+    // unseeded_rng, wallclock_read: unconditional, every parsed TU, no
+    // config needed.
     for (_file, tu) in &tus {
         scan_unseeded_rng(tu.get_entity(), &mut findings);
+        scan_wallclock_read(tu.get_entity(), &mut findings);
     }
 
     let mut bodies: HashMap<String, Entity> = HashMap::new();
@@ -447,7 +503,19 @@ fn run(compile_commands_path: &Path, config_path: Option<&Path>) -> Result<i32> 
         }
     }
 
-    findings.sort_by(|a, b| (&a.file, a.line, a.column).cmp(&(&b.file, b.line, b.column)));
+    // A macro-expanded argument (e.g. UE_LOG's own internal
+    // implementation, confirmed by dogfooding against real Lyra source —
+    // `LyraAssetManagerStartupJob.cpp`'s UE_LOG call re-evaluates its
+    // `FPlatformTime::Seconds()` argument at the same file:line:column
+    // three times) makes the identical call-site AST node reachable via
+    // more than one expansion path; dedup on the exact reported location
+    // rather than leaving misleadingly inflated finding counts.
+    findings.sort_by(|a, b| {
+        (&a.file, a.line, a.column, a.rule).cmp(&(&b.file, b.line, b.column, b.rule))
+    });
+    findings.dedup_by(|a, b| {
+        a.file == b.file && a.line == b.line && a.column == b.column && a.rule == b.rule
+    });
     for f in &findings {
         println!(
             "{}:{}:{}: warning: {} [drift-unreal::{}]",
@@ -467,8 +535,9 @@ fn main() -> Result<()> {
     if args.len() < 2 {
         bail!(
             "usage: drift-unreal-lint <compile_commands.json> [config.toml]\n\
-             unseeded_rng always runs; float_outside_fixed_step needs \
-             config.toml's tick_reachable_roots"
+             unseeded_rng and wallclock_read always run; \
+             float_outside_fixed_step needs config.toml's \
+             tick_reachable_roots"
         );
     }
     let compile_commands = PathBuf::from(&args[1]);
