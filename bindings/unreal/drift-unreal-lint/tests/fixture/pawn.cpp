@@ -68,6 +68,8 @@ public:
     void IterateMap();
     void UseCreateIterator();
     void IterateSortedArray();
+    void RunParallel();
+    void LogAsync();
 
     float Velocity = 0.0f;
     float Position = 0.0f;
@@ -145,4 +147,28 @@ void ATestPawn::IterateSortedArray()
     {
         (void)Id;
     }
+}
+
+// Real UE's ParallelFor, trimmed to the one overload this fixture needs.
+void ParallelFor(int Num, void (*Body)(int));
+
+// Real UE's AsyncTask — deliberately NOT matched by
+// unordered_parallelism, see main.rs's UNORDERED_PARALLELISM_FUNCS
+// comment for the real evidence (checked against real non-Lyra Engine
+// source, not assumed) behind that exclusion.
+void AsyncTask(int ThreadType, void (*Body)());
+
+// unordered_parallelism fires here unconditionally, same as
+// unseeded_rng/wallclock_read/hashmap_iter — no reachability scoping
+// needed.
+void ATestPawn::RunParallel()
+{
+    ParallelFor(4, [](int) {});
+}
+
+// Must NOT fire: AsyncTask is deliberately excluded from v1 (see the
+// comment on UNORDERED_PARALLELISM_FUNCS).
+void ATestPawn::LogAsync()
+{
+    AsyncTask(0, []() {});
 }

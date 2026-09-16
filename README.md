@@ -14,7 +14,7 @@ Companion to [Foldback](https://github.com/FelixMiddelhoff/foldback) (runtime de
 |---|---|
 | Rust | `crates/drift-lint`, a [dylint](https://github.com/trailofbits/dylint) lint library, 5 rules |
 | C# / Unity | `bindings/csharp/Drift.Analyzers`, a Roslyn analyzer, 5 rules (DRIFT0001–0005) — works in any C# project; Unity-specific rules are scoped to `UnityEngine.*` types |
-| C++ / Unreal | `bindings/unreal/drift-unreal-lint`, a standalone binary over stock LLVM/Clang (no engine fork needed), 4 rules against a project's `compile_commands.json` |
+| C++ / Unreal | `bindings/unreal/drift-unreal-lint`, a standalone binary over stock LLVM/Clang (no engine fork needed), 5 rules against a project's `compile_commands.json` |
 
 Full rule reference, one entry per rule with a real example and fix: [docs/rule-catalog.md](docs/rule-catalog.md).
 
@@ -55,7 +55,7 @@ LIBCLANG_PATH="<path to your LLVM install>/bin" \
   compile_commands.json [config.toml]
 ```
 
-`unseeded_rng`, `wallclock_read`, and `hashmap_iter` run unconditionally. `float_outside_fixed_step` is opt-in — it does nothing until `config.toml` sets `tick_reachable_roots`:
+`unseeded_rng`, `wallclock_read`, `hashmap_iter`, and `unordered_parallelism` run unconditionally. `float_outside_fixed_step` is opt-in — it does nothing until `config.toml` sets `tick_reachable_roots`:
 
 ```toml
 tick_reachable_roots = ["AMyPawn::Tick"]

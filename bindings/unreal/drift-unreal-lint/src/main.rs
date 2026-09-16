@@ -3,19 +3,19 @@
 //! LLVM package ships `clang-c` + `libclang.lib` only, not the full
 //! LibTooling/AST headers a real clang-tidy check needs to build against).
 //!
-//! Four rules, ported from the Rust/C# taxonomy (see
+//! Five rules, ported from the Rust/C# taxonomy (see
 //! D:\Claude\drift-planning\drift-godot-unreal-plan.md §4/§6/§8):
-//! `unseeded_rng`, `wallclock_read`, and `hashmap_iter` fire
-//! unconditionally, repo-wide, same as their Rust/C# counterparts.
-//! `float_outside_fixed_step` is opt-in only: does nothing unless
-//! `tick_reachable_roots` is configured, same design as drift-lint's own
-//! dylint.toml-driven reachability scoping. `hashmap_iter` is detected by
-//! type (a range-based-for or `.CreateIterator()`/`.CreateConstIterator()`
-//! over a `TMap`/`TSet`), not by call-site spelling — the type-based
-//! approach naturally excludes the collect-then-sort false-positive shape
-//! the Rust side's own `hashmap_iter` had to special-case, since a
-//! `TArray` sorted after being built from a map's contents is a different
-//! type than `TMap`/`TSet`.
+//! `unseeded_rng`, `wallclock_read`, `hashmap_iter`, and
+//! `unordered_parallelism` fire unconditionally, repo-wide, same as their
+//! Rust/C# counterparts. `float_outside_fixed_step` is opt-in only: does
+//! nothing unless `tick_reachable_roots` is configured, same design as
+//! drift-lint's own dylint.toml-driven reachability scoping.
+//! `hashmap_iter` is detected by type (a range-based-for or
+//! `.CreateIterator()`/`.CreateConstIterator()` over a `TMap`/`TSet`), not
+//! by call-site spelling — the type-based approach naturally excludes the
+//! collect-then-sort false-positive shape the Rust side's own
+//! `hashmap_iter` had to special-case, since a `TArray` sorted after being
+//! built from a map's contents is a different type than `TMap`/`TSet`.
 
 use anyhow::{bail, Context, Result};
 use clang::{Clang, Entity, EntityKind, Index};
@@ -427,6 +427,55 @@ fn scan_wallclock_read(tu_root: Entity, findings: &mut Vec<Finding>) {
     visit(tu_root, findings);
 }
 
+/// Parallel iteration/dispatch whose reduction into shared state isn't
+/// proven commutative — same known-problem caveat `drift::unordered_
+/// parallelism`/`DRIFT0004` already carry, inherited here rather than
+/// re-litigated. Fires unconditionally, no reachability scoping.
+///
+/// Deliberately excludes `AsyncTask` — checked against real non-Lyra
+/// Engine source before deciding, not assumed: every real call site found
+/// (`AndroidPlatformMemory.cpp`, `ConfigContext.cpp`,
+/// `IPlatformFileManagedStorageWrapper.h`) was a memory warning,
+/// deprecation message, or background file operation, none touching
+/// simulated state — including it would flag far more UI/logging/IO code
+/// than real hazards, a worse signal-to-noise ratio than `ParallelFor`.
+/// Deferred the same way `float_outside_fixed_step` was originally
+/// deferred: real evidence against inclusion, not a guess.
+const UNORDERED_PARALLELISM_FUNCS: &[&str] = &[
+    "ParallelFor",
+    "ParallelForWithTaskContext",
+    "UE::Tasks::Launch",
+];
+
+fn scan_unordered_parallelism(tu_root: Entity, findings: &mut Vec<Finding>) {
+    fn visit(entity: Entity, findings: &mut Vec<Finding>) {
+        if entity.get_kind() == EntityKind::CallExpr {
+            if let Some(spelling) = call_site_spelling(&entity) {
+                if UNORDERED_PARALLELISM_FUNCS.contains(&spelling.as_str()) {
+                    if let Some(range) = entity.get_range() {
+                        let loc = range.get_start().get_spelling_location();
+                        findings.push(Finding {
+                            file: loc.file.map(|f| f.get_path()).unwrap_or_default(),
+                            line: loc.line,
+                            column: loc.column,
+                            rule: "unordered_parallelism",
+                            message: format!(
+                                "{spelling}() dispatches unordered parallel work; folding \
+                                 its results into simulated state without a deterministic \
+                                 reduction can desync across peers"
+                            ),
+                        });
+                    }
+                }
+            }
+        }
+        for child in entity.get_children() {
+            visit(child, findings);
+        }
+    }
+    visit(tu_root, findings);
+}
+
 fn collect_call_edges(body: Entity, caller: &str, edges: &mut HashMap<String, HashSet<String>>) {
     fn visit(entity: Entity, caller: &str, edges: &mut HashMap<String, HashSet<String>>) {
         if entity.get_kind() == EntityKind::CallExpr {
@@ -535,12 +584,13 @@ fn run(compile_commands_path: &Path, config_path: Option<&Path>) -> Result<i32> 
 
     let mut findings = Vec::new();
 
-    // unseeded_rng, wallclock_read, hashmap_iter: unconditional, every
-    // parsed TU, no config needed.
+    // unseeded_rng, wallclock_read, hashmap_iter, unordered_parallelism:
+    // unconditional, every parsed TU, no config needed.
     for (_file, tu) in &tus {
         scan_unseeded_rng(tu.get_entity(), &mut findings);
         scan_wallclock_read(tu.get_entity(), &mut findings);
         scan_hashmap_iter(tu.get_entity(), &mut findings);
+        scan_unordered_parallelism(tu.get_entity(), &mut findings);
     }
 
     let mut bodies: HashMap<String, Entity> = HashMap::new();
@@ -636,9 +686,9 @@ fn main() -> Result<()> {
     if args.len() < 2 {
         bail!(
             "usage: drift-unreal-lint <compile_commands.json> [config.toml]\n\
-             unseeded_rng, wallclock_read, and hashmap_iter always run; \
-             float_outside_fixed_step needs config.toml's \
-             tick_reachable_roots"
+             unseeded_rng, wallclock_read, hashmap_iter, and \
+             unordered_parallelism always run; float_outside_fixed_step \
+             needs config.toml's tick_reachable_roots"
         );
     }
     let compile_commands = PathBuf::from(&args[1]);
