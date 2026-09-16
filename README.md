@@ -3,6 +3,7 @@
 [![CI](https://github.com/FelixMiddelhoff/drift/actions/workflows/ci.yml/badge.svg)](https://github.com/FelixMiddelhoff/drift/actions/workflows/ci.yml)
 [![CodeQL](https://github.com/FelixMiddelhoff/drift/actions/workflows/codeql.yml/badge.svg)](https://github.com/FelixMiddelhoff/drift/actions/workflows/codeql.yml)
 [![License: MIT OR Apache-2.0](https://img.shields.io/badge/license-MIT%20OR%20Apache--2.0-blue.svg)](#license)
+[![Docs](https://img.shields.io/badge/docs-book-blue.svg)](https://felixmiddelhoff.github.io/drift/)
 
 Static lints that catch game-simulation non-determinism — `HashMap`/`HashSet` iteration, unseeded RNG, wall-clock reads, unordered parallelism, pointer-width fields on hashed state, non-associative float arithmetic reachable from simulation code — before they cause a lockstep/rollback-netcode desync, instead of debugging the desync after the fact.
 

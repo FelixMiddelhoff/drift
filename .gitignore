@@ -21,4 +21,4 @@ bindings/unreal/drift-unreal-lint/target/
 # workspace.
 bindings/godot/drift-godot-lint/target/
 
-/docs/book
+/docs-site/book

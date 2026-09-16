@@ -1,0 +1,15 @@
+[book]
+title = "Drift"
+description = "Static lints that catch game-simulation non-determinism before it causes a lockstep/rollback-netcode desync."
+authors = ["Felix Middelhoff"]
+language = "en"
+src = "src"
+
+[output.html]
+git-repository-url = "https://github.com/FelixMiddelhoff/drift"
+edit-url-template = "https://github.com/FelixMiddelhoff/drift/edit/main/docs-site/{path}"
+site-url = "/drift/"
+
+[output.html.fold]
+enable = true
+level = 1
