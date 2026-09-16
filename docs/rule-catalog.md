@@ -115,7 +115,7 @@ fn ui_only_function() { /* ... */ }
 
 ## C#/Unity (`Drift.Analyzers`)
 
-A Roslyn analyzer, `bindings/csharp/Drift.Analyzers` — works in any C# project, not just Unity (Unity-specific rules are simply scoped to `UnityEngine.*` types and still just ordinary C# analysis). Install by referencing the built `Drift.Analyzers.dll` as an `Analyzer` item, or via the NuGet package once published (not yet).
+A Roslyn analyzer, `bindings/csharp/Drift.Analyzers` — works in any C# project, not just Unity (Unity-specific rules are simply scoped to `UnityEngine.*` types and still just ordinary C# analysis). Install via `dotnet add package GameDeterminism.Analyzers` (published under that name, not `Drift.Analyzers` — `Drift` is a NuGet ID prefix reserved by an unrelated company), or by referencing the built `Drift.Analyzers.dll` directly as an `Analyzer` item.
 
 ### `DRIFT0001` — Dictionary/HashSet iteration order
 

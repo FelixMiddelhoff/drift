@@ -11,6 +11,7 @@ crates/drift-lint/tests/reachability_fixture/target/
 # bindings/csharp — standard .NET/Roslyn generated output, never committed.
 bindings/csharp/**/bin/
 bindings/csharp/**/obj/
+bindings/csharp/**/out/
 
 # bindings/unreal/drift-unreal-lint is its own detached Cargo workspace
 # (stable toolchain, but not a root-workspace member — same reasoning as

@@ -34,7 +34,13 @@ cargo dylint --path crates/drift-lint --workspace
 
 ## C# / Unity quickstart
 
-Reference the built `Drift.Analyzers.dll` as an `Analyzer` item in your `.csproj`:
+```bash
+dotnet add package GameDeterminism.Analyzers
+```
+
+(Published as `GameDeterminism.Analyzers`, not `Drift.Analyzers` — `Drift` is a reserved NuGet ID prefix owned by someone else, unrelated to this project.)
+
+Or reference the built `Drift.Analyzers.dll` directly as an `Analyzer` item in your `.csproj`:
 
 ```xml
 <ItemGroup>
@@ -42,7 +48,7 @@ Reference the built `Drift.Analyzers.dll` as an `Analyzer` item in your `.csproj
 </ItemGroup>
 ```
 
-(A NuGet package isn't published yet — `dotnet pack bindings/csharp/Drift.Analyzers` builds one locally in the correct `analyzers/dotnet/cs/` layout that VS/Rider/VS Code auto-load on install.)
+`dotnet pack bindings/csharp/Drift.Analyzers` builds the package locally in the correct `analyzers/dotnet/cs/` layout that VS/Rider/VS Code auto-load on install.
 
 ## Unreal quickstart
 
