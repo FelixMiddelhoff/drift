@@ -13,7 +13,7 @@ Please include:
 
 ## Scope
 
-Drift is a build-time/CI static-analysis tool, not something that runs in a trust boundary by design — it doesn't execute the code it analyzes, only parses/lints it. The main thing worth reporting here is a crash, hang, or resource-exhaustion issue in the lint engine (`drift-lint` or, once it exists, `Drift.Analyzers`) triggered by adversarial or pathological source input — a tool that's supposed to run in CI shouldn't be able to hang a CI job or crash on legitimate-but-unusual code.
+Drift is a build-time/CI static-analysis tool, not something that runs in a trust boundary by design — it doesn't execute the code it analyzes, only parses/lints it. The main thing worth reporting here is a crash, hang, or resource-exhaustion issue in one of the lint engines (`drift-lint`, `Drift.Analyzers`, `drift-unreal-lint`, or `drift-godot-lint`) triggered by adversarial or pathological source input — a tool that's supposed to run in CI shouldn't be able to hang a CI job or crash on legitimate-but-unusual code.
 
 Out of scope: issues that require an attacker to already have local code execution on the machine running drift, and vulnerabilities in third-party dependencies without a demonstrated impact on drift itself (report those upstream — Dependabot already tracks known-vulnerable dependencies here).
 

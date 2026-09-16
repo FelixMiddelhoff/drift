@@ -1,0 +1,8 @@
+[drift-lint]
+# "main" (not "tick") deliberately — see minimal-rust/src/main.rs's own
+# comment: configuring tick_reachable_roots at all scopes *every* rule
+# except usize_in_hashed_state, not just float_outside_fixed_step (real,
+# confirmed the hard way — an earlier "tick" root hid the other 5 rules'
+# demo call sites in main() since they weren't reachable from tick).
+# Rooting at "main" keeps every rule's own demo site reachable.
+tick_reachable_roots = ["main"]

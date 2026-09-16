@@ -4,7 +4,7 @@
 [![CodeQL](https://github.com/FelixMiddelhoff/drift/actions/workflows/codeql.yml/badge.svg)](https://github.com/FelixMiddelhoff/drift/actions/workflows/codeql.yml)
 [![License: MIT OR Apache-2.0](https://img.shields.io/badge/license-MIT%20OR%20Apache--2.0-blue.svg)](#license)
 
-Static lints that catch game-simulation non-determinism — `HashMap`/`HashSet` iteration, unseeded RNG, wall-clock reads, unordered parallelism, pointer-width fields on hashed state — before they cause a lockstep/rollback-netcode desync, instead of debugging the desync after the fact.
+Static lints that catch game-simulation non-determinism — `HashMap`/`HashSet` iteration, unseeded RNG, wall-clock reads, unordered parallelism, pointer-width fields on hashed state, non-associative float arithmetic reachable from simulation code — before they cause a lockstep/rollback-netcode desync, instead of debugging the desync after the fact.
 
 Companion to [Foldback](https://github.com/FelixMiddelhoff/foldback) (runtime desync detection and bisection): drift prevents what it can at build time, Foldback finds what slips through at runtime.
 
@@ -63,7 +63,7 @@ tick_reachable_roots = ["AMyPawn::Tick"]
 fixed_step_functions = ["UMyIntegrator::Step"]
 ```
 
-Uses stock LLVM/Clang directly (the `clang` crate over libclang) — no forked compiler, no custom clang-tidy check to build. See [docs/rule-catalog.md](docs/rule-catalog.md) for both rules' known limitations.
+Uses stock LLVM/Clang directly (the `clang` crate over libclang) — no forked compiler, no custom clang-tidy check to build. See [docs/rule-catalog.md](docs/rule-catalog.md) for each rule's own known limitations.
 
 ## Godot quickstart
 
