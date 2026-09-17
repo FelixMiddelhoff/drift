@@ -352,10 +352,25 @@ struct FuncInfo {
 /// Builds the whole project's function table and call graph in one pass
 /// over every parsed tree — the input `float_outside_fixed_step`'s
 /// reachability BFS needs.
+///
+/// `funcs` maps a name to **every** `FuncInfo` sharing it, not just one —
+/// a real bug found dogfooding against a real 250-file project
+/// (Orama-Interactive/Pixelorama): the previous `HashMap<String,
+/// FuncInfo>` `.insert()`-overwrote same-named functions, so with
+/// `_process`/`_physics_process` being about as common a name as exists in
+/// a real multi-scene Godot project, only the *last* one (in sorted file
+/// order) ever got scanned as a reachability root — every other file's
+/// tick function was silently skipped entirely, not just its own
+/// arithmetic. `edges` was never affected by this (it already unions
+/// callees per name via `.entry().or_default().extend()`, not overwrite);
+/// only the root/target function table was.
 fn collect_functions_and_edges(
     trees: &[(PathBuf, SyntaxTree)],
-) -> (HashMap<String, FuncInfo>, HashMap<String, HashSet<String>>) {
-    let mut funcs = HashMap::new();
+) -> (
+    HashMap<String, Vec<FuncInfo>>,
+    HashMap<String, HashSet<String>>,
+) {
+    let mut funcs: HashMap<String, Vec<FuncInfo>> = HashMap::new();
     let mut edges: HashMap<String, HashSet<String>> = HashMap::new();
     for (tree_idx, (_path, tree)) in trees.iter().enumerate() {
         for node in tree.root().descendants() {
@@ -365,13 +380,10 @@ fn collect_functions_and_edges(
             let Some(name) = func_name(node) else {
                 continue;
             };
-            funcs.insert(
-                name.clone(),
-                FuncInfo {
-                    tree_idx,
-                    node_id: node.id(),
-                },
-            );
+            funcs.entry(name.clone()).or_default().push(FuncInfo {
+                tree_idx,
+                node_id: node.id(),
+            });
             let mut callees = HashSet::new();
             collect_call_edges(node, &mut callees);
             edges.entry(name).or_default().extend(callees);
@@ -447,14 +459,20 @@ fn run(root: &Path) -> anyhow::Result<i32> {
         }
     }
     for name in &reachable {
-        let Some(info) = funcs.get(name) else {
+        let Some(infos) = funcs.get(name) else {
             continue;
         };
-        let (path, tree) = &trees[info.tree_idx];
-        let func = tree.node(info.node_id);
-        let float_names = collect_float_typed_names(func);
-        let lines = LineIndex::new(tree.text());
-        scan_float_chains(func, &float_names, path, &lines, &mut findings);
+        // Every function sharing this name, not just one — see
+        // `collect_functions_and_edges`'s own doc comment for the real bug
+        // this fixes (every same-named function used to silently lose all
+        // but its last-collected instance here).
+        for info in infos {
+            let (path, tree) = &trees[info.tree_idx];
+            let func = tree.node(info.node_id);
+            let float_names = collect_float_typed_names(func);
+            let lines = LineIndex::new(tree.text());
+            scan_float_chains(func, &float_names, path, &lines, &mut findings);
+        }
     }
 
     // Real duplicate found dogfooding: `float_outside_fixed_step`'s flat,
@@ -474,12 +492,19 @@ fn run(root: &Path) -> anyhow::Result<i32> {
     });
 
     if std::env::var("DRIFT_GODOT_STATS").is_ok() {
+        let total_funcs: usize = funcs.values().map(Vec::len).sum();
         eprintln!(
-            "stats: {} .gd files scanned, {total_parse_errors} parse errors, {} functions, \
-             {} reachable from _process/_physics_process, {} findings",
+            "stats: {} .gd files scanned, {total_parse_errors} parse errors, {total_funcs} \
+             functions ({} distinct names), {} reachable names from _process/_physics_process \
+             ({} function bodies), {} findings",
             files.len(),
             funcs.len(),
             reachable.len(),
+            reachable
+                .iter()
+                .filter_map(|n| funcs.get(n))
+                .map(Vec::len)
+                .sum::<usize>(),
             findings.len()
         );
     }

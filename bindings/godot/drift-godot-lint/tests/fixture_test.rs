@@ -56,3 +56,33 @@ fn unconditional_rules_fire_on_bare_calls_only() {
     // _process/_physics_process — reachability scoping must exclude it.
     assert!(!stdout.contains("player.gd:80"));
 }
+
+/// Real bug found dogfooding against a real 250-file project
+/// (Orama-Interactive/Pixelorama): the whole-project function table used to
+/// key by bare name in a single `HashMap<String, FuncInfo>`, so two files
+/// each defining `_physics_process` (as common as a name gets in a real
+/// multi-scene Godot project) collided — the second `.insert()` silently
+/// discarded the first, and only the surviving one ever got scanned as a
+/// reachability root. `tests/fixture/collision/{a,b}.gd` both define
+/// `_physics_process` with their own distinct qualifying float
+/// arithmetic — both must fire when the directory is scanned together,
+/// proving same-named functions across files no longer collide.
+#[test]
+fn same_named_functions_across_files_do_not_collide() {
+    let out = Command::new(env!("CARGO_BIN_EXE_drift-godot-lint"))
+        .arg(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/tests/fixture/collision"
+        ))
+        .output()
+        .expect("failed to run drift-godot-lint");
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert_eq!(out.status.code(), Some(1), "stdout was: {stdout}");
+
+    let lines: Vec<&str> = stdout.lines().collect();
+    assert_eq!(lines.len(), 2, "expected exactly 2 findings, got: {stdout}");
+    assert!(lines[0].contains("a.gd:13:11"));
+    assert!(lines[0].contains("[drift-godot::float_outside_fixed_step]"));
+    assert!(lines[1].contains("b.gd:9:8"));
+    assert!(lines[1].contains("[drift-godot::float_outside_fixed_step]"));
+}
