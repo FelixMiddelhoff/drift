@@ -9,7 +9,7 @@ Companion to [Foldback](https://github.com/FelixMiddelhoff/foldback) (runtime de
 | Language | What you get |
 |---|---|
 | Rust | `crates/drift-lint`, a [dylint](https://github.com/trailofbits/dylint) lint library, 6 rules |
-| C# / Unity | `bindings/csharp/Drift.Analyzers`, a Roslyn analyzer, 5 rules (DRIFT0001–0005) — works in any C# project; Unity-specific rules are scoped to `UnityEngine.*` types; `float_outside_fixed_step` not ported here |
+| C# / Unity | `bindings/csharp/Drift.Analyzers`, a Roslyn analyzer, 5 rules (DRIFT0001–0005) — works in any C# project; Unity-specific rules are scoped to `UnityEngine.*` types; `float_outside_fixed_step` not ported here; published on NuGet as [`GameDeterminism.Analyzers`](https://www.nuget.org/packages/GameDeterminism.Analyzers), not `Drift.Analyzers` (see the [C# quickstart](./quickstart-csharp.md) for why) |
 | C++ / Unreal | `bindings/unreal/drift-unreal-lint`, a standalone binary over stock LLVM/Clang (no engine fork needed), full 6-rule taxonomy parity, against a project's `compile_commands.json` |
 | GDScript / Godot | `bindings/godot/drift-godot-lint`, a standalone binary over [gdck-syntax](https://crates.io/crates/gdck-syntax) (pure Rust, no engine dependency), 4 of 6 rules (`hashmap_iter`/`usize_in_hashed_state` don't apply to GDScript) |
 
