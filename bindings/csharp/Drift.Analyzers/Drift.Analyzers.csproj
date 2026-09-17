@@ -10,7 +10,7 @@
 
   <PropertyGroup>
     <PackageId>GameDeterminism.Analyzers</PackageId>
-    <Version>0.1.1</Version>
+    <Version>0.1.2</Version>
     <Authors>Felix Middelhoff and Drift contributors</Authors>
     <Description>Roslyn analyzer catching game-simulation non-determinism (Dictionary/HashSet iteration, unseeded RNG, wall-clock reads, unordered parallelism, pointer-width fields on records) before it causes a rollback-netcode desync. Works in any C# project; Unity-specific rules are scoped to UnityEngine types.</Description>
     <PackageTags>determinism;rollback-netcode;lockstep;unity;desync;analyzer;roslyn</PackageTags>
