@@ -21,20 +21,28 @@ fn unconditional_rules_fire_on_bare_calls_only() {
     assert_eq!(out.status.code(), Some(1), "stdout was: {stdout}");
 
     let lines: Vec<&str> = stdout.lines().collect();
-    assert_eq!(lines.len(), 5, "expected exactly 5 findings, got: {stdout}");
+    assert_eq!(lines.len(), 7, "expected exactly 7 findings, got: {stdout}");
     assert!(lines[0].contains("player.gd:8:8"));
     assert!(lines[0].contains("[drift-godot::unseeded_rng]"));
     assert!(lines[1].contains("player.gd:20:12"));
     assert!(lines[1].contains("[drift-godot::wallclock_read]"));
     assert!(lines[2].contains("player.gd:34:2"));
     assert!(lines[2].contains("[drift-godot::unordered_parallelism]"));
-    assert!(lines[3].contains("player.gd:63:14"));
+    assert!(lines[3].contains("player.gd:64:15"));
     assert!(lines[3].contains("[drift-godot::float_outside_fixed_step]"));
     // Compound assignment (`elapsed += delta`, an AssignStmt, not a
     // BinaryExpr) — previously a real, disclosed gap found dogfooding
     // against Pixelorama, fixed here. Fires as its own hit.
-    assert!(lines[4].contains("player.gd:74:2"));
+    assert!(lines[4].contains("player.gd:75:2"));
     assert!(lines[4].contains("[drift-godot::float_outside_fixed_step]"));
+    // Real bug found dogfooding: a plain binary statement followed by a
+    // compound-assignment statement in the same function used to make the
+    // second one report on the wrong (previous) line — both must now fire
+    // at their own correct, distinct lines.
+    assert!(lines[5].contains("player.gd:94:9"));
+    assert!(lines[5].contains("[drift-godot::float_outside_fixed_step]"));
+    assert!(lines[6].contains("player.gd:95:2"));
+    assert!(lines[6].contains("[drift-godot::float_outside_fixed_step]"));
 
     // A member call on a project-owned seedable RNG instance
     // (`seeded_rng.randi_range(...)`) must never fire — only the bare
@@ -81,8 +89,8 @@ fn same_named_functions_across_files_do_not_collide() {
 
     let lines: Vec<&str> = stdout.lines().collect();
     assert_eq!(lines.len(), 2, "expected exactly 2 findings, got: {stdout}");
-    assert!(lines[0].contains("a.gd:13:11"));
+    assert!(lines[0].contains("a.gd:13:12"));
     assert!(lines[0].contains("[drift-godot::float_outside_fixed_step]"));
-    assert!(lines[1].contains("b.gd:9:8"));
+    assert!(lines[1].contains("b.gd:9:9"));
     assert!(lines[1].contains("[drift-godot::float_outside_fixed_step]"));
 }

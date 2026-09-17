@@ -52,6 +52,7 @@ var gravity := 9.8
 func _physics_process(delta: float) -> void:
 	apply_gravity(delta)
 	accumulate(delta)
+	combined_in_one_function(delta)
 	# Real, disclosed limitation: pure untyped-variable arithmetic is
 	# invisible to this rule (no type inference) — must NOT fire even
 	# though it's reachable from _physics_process.
@@ -78,3 +79,17 @@ func accumulate(delta: float) -> void:
 # it, same as the Rust/Unreal sides' own NotReached-style negative case.
 func unrelated_math(delta: float) -> float:
 	return 1.0 + delta * 2.0
+
+var spin := 0.0
+var heat := 0.0
+
+# Real bug found dogfooding: a plain binary statement followed by a
+# compound-assignment statement *in the same function* — gdck-syntax's
+# checkpoint-based AssignStmt construction made the second statement's own
+# range start at the previous statement's trailing newline/whitespace
+# (see first_real_token_start's own doc comment), so this compound
+# assignment used to be reported on the *previous* line instead of its
+# own. Both must fire, each at its own correct line.
+func combined_in_one_function(delta: float) -> void:
+	spin = spin + delta
+	heat += delta

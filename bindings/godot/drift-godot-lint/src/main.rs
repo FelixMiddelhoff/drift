@@ -24,7 +24,7 @@
 //! (GDScript has no fixed/pointer-width integer distinction — `int` is
 //! always 64-bit).
 
-use gdck_syntax::{parse, LineIndex, NodeId, SyntaxKind, SyntaxNode, SyntaxTree};
+use gdck_syntax::{parse, Element, LineIndex, NodeId, SyntaxKind, SyntaxNode, SyntaxTree};
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -278,6 +278,41 @@ fn collect_float_typed_names(func: SyntaxNode) -> HashSet<String> {
     names
 }
 
+/// gdck-syntax's checkpoint-based retroactive `AssignStmt` construction
+/// (see the parser's own `parse_expr_statement`: it opens `ExprStmt`,
+/// parses the lhs, then — only once it sees an assignment operator —
+/// retroactively reopens that span as `AssignStmt` via `start_node_at` a
+/// checkpoint taken *before* the lhs was parsed) means an `AssignStmt`'s
+/// own `.range()` can start earlier than its first real token: for any
+/// statement after the first one in a block, the `Newline`/`Whitespace`
+/// separating it from the previous statement is lexed as the *next*
+/// token's own leading trivia (same "NameRef/AttributeExpr carry their own
+/// leading whitespace" quirk `callee_text` already works around), and the
+/// checkpoint predates that trivia too. A real bug found dogfooding: a
+/// compound-assignment (`x += y`) finding — the one case this tool reports
+/// at an `AssignStmt`'s own range rather than a narrower child's — got
+/// reported on the *previous* line whenever it wasn't the first statement
+/// in its block. Walks the leftmost path to the first non-trivia token and
+/// reports that token's own start instead.
+fn first_real_token_start(node: SyntaxNode) -> u32 {
+    const TRIVIA: &[SyntaxKind] = &[
+        SyntaxKind::Newline,
+        SyntaxKind::Whitespace,
+        SyntaxKind::Indent,
+        SyntaxKind::Dedent,
+    ];
+    for element in node.children() {
+        match element {
+            Element::Token(tok) if !TRIVIA.contains(&tok.kind) => {
+                return tok.range.start();
+            }
+            Element::Token(_) => continue,
+            Element::Node(id) => return first_real_token_start(node.tree().node(id)),
+        }
+    }
+    node.range().start()
+}
+
 /// A chain like `a + b + c` is deduped to one warning on the outermost
 /// qualifying expression, not one per operator — same reasoning as the
 /// Rust/Unreal sides' own `scan_float_chains`.
@@ -298,7 +333,7 @@ fn scan_float_chains(
     ) {
         let this_qualifies = is_qualifying_float_binary(node, float_names);
         if this_qualifies && !inside_qualifying {
-            let loc = lines.line_col(node.range().start());
+            let loc = lines.line_col(first_real_token_start(node));
             findings.push(Finding {
                 file: path.to_path_buf(),
                 line: loc.line,
