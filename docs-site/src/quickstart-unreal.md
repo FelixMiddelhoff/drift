@@ -1,6 +1,6 @@
 # Unreal quickstart
 
-Generate a `compile_commands.json` with UnrealBuildTool, then run `drift-unreal-lint` against it:
+Generate a `compile_commands.json` with UnrealBuildTool, then run `drift-unreal-lint` against it. Grab a prebuilt binary from the [latest release](https://github.com/FelixMiddelhoff/drift/releases/latest) (Linux/macOS/Windows — still needs `LIBCLANG_PATH` set at runtime, it links libclang dynamically rather than bundling it), or build from source:
 
 ```bash
 "<EnginePath>/Engine/Binaries/DotNET/UnrealBuildTool/UnrealBuildTool.exe" \

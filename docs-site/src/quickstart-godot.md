@@ -1,5 +1,7 @@
 # Godot quickstart
 
+Grab a prebuilt binary from the [latest release](https://github.com/FelixMiddelhoff/drift/releases/latest) (Linux/macOS/Windows, no toolchain needed), or build from source:
+
 ```bash
 cargo run --manifest-path bindings/godot/drift-godot-lint/Cargo.toml -- <file.gd | project directory>
 ```

@@ -1,0 +1,104 @@
+name: release-binaries
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Release tag to attach binaries to (must already exist)"
+        required: true
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            target_suffix: linux-x86_64
+            ext: ""
+          - os: windows-latest
+            target_suffix: windows-x86_64
+            ext: ".exe"
+          - os: macos-latest
+            target_suffix: macos-x86_64
+            ext: ""
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event.release.tag_name || inputs.tag }}
+
+      - uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable
+
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
+        with:
+          workspaces: |
+            bindings/unreal/drift-unreal-lint -> target
+            bindings/godot/drift-godot-lint -> target
+
+      # drift-unreal-lint links against libclang (the `clang` crate) —
+      # same install steps as ci.yml's unreal-lint-test job, needed here
+      # too since the crate resolves libclang at build time via
+      # LIBCLANG_PATH, not just at runtime.
+      - name: Install LLVM/Clang (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libclang-dev clang llvm
+          echo "LIBCLANG_PATH=$(llvm-config --libdir)" >> "$GITHUB_ENV"
+      - name: Install LLVM/Clang (macOS)
+        if: runner.os == 'macOS'
+        run: |
+          brew install llvm
+          echo "LIBCLANG_PATH=$(brew --prefix llvm)/lib" >> "$GITHUB_ENV"
+      - name: Install LLVM/Clang (Windows)
+        if: runner.os == 'Windows'
+        run: |
+          choco install llvm -y --no-progress
+          echo "LIBCLANG_PATH=C:\Program Files\LLVM\bin" >> $env:GITHUB_ENV
+
+      - name: Build drift-unreal-lint
+        working-directory: bindings/unreal/drift-unreal-lint
+        run: cargo build --release
+
+      - name: Build drift-godot-lint
+        working-directory: bindings/godot/drift-godot-lint
+        run: cargo build --release
+
+      - name: Stage binaries
+        shell: bash
+        run: |
+          mkdir -p staged
+          cp "bindings/unreal/drift-unreal-lint/target/release/drift-unreal-lint${{ matrix.ext }}" \
+             "staged/drift-unreal-lint-${{ matrix.target_suffix }}${{ matrix.ext }}"
+          cp "bindings/godot/drift-godot-lint/target/release/drift-godot-lint${{ matrix.ext }}" \
+             "staged/drift-godot-lint-${{ matrix.target_suffix }}${{ matrix.ext }}"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: binaries-${{ matrix.target_suffix }}
+          path: staged/*
+          if-no-files-found: error
+
+  upload:
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: staged
+          merge-multiple: true
+
+      - name: Upload to release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ github.event.release.tag_name || inputs.tag }}
+        run: |
+          gh release upload "$TAG" staged/* --repo "${{ github.repository }}" --clobber

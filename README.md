@@ -52,7 +52,7 @@ Or reference the built `Drift.Analyzers.dll` directly as an `Analyzer` item in y
 
 ## Unreal quickstart
 
-Generate a `compile_commands.json` with UnrealBuildTool, then run `drift-unreal-lint` against it:
+Generate a `compile_commands.json` with UnrealBuildTool, then run `drift-unreal-lint` against it. Grab a prebuilt binary from the [latest release](https://github.com/FelixMiddelhoff/drift/releases/latest) (Linux/macOS/Windows), or build from source:
 
 ```bash
 "<EnginePath>/Engine/Binaries/DotNET/UnrealBuildTool/UnrealBuildTool.exe" \
@@ -62,6 +62,8 @@ LIBCLANG_PATH="<path to your LLVM install>/bin" \
   cargo run --manifest-path bindings/unreal/drift-unreal-lint/Cargo.toml -- \
   compile_commands.json [config.toml]
 ```
+
+(A prebuilt `drift-unreal-lint` binary still needs `LIBCLANG_PATH` set at runtime — it links libclang dynamically, doesn't bundle it.)
 
 `unseeded_rng`, `wallclock_read`, `hashmap_iter`, `unordered_parallelism`, and `usize_in_hashed_state` run unconditionally. `float_outside_fixed_step` is opt-in — it does nothing until `config.toml` sets `tick_reachable_roots`:
 
@@ -73,6 +75,8 @@ fixed_step_functions = ["UMyIntegrator::Step"]
 Uses stock LLVM/Clang directly (the `clang` crate over libclang) — no forked compiler, no custom clang-tidy check to build. See [docs/rule-catalog.md](docs/rule-catalog.md) for each rule's own known limitations.
 
 ## Godot quickstart
+
+Grab a prebuilt binary from the [latest release](https://github.com/FelixMiddelhoff/drift/releases/latest) (Linux/macOS/Windows, no toolchain needed — pure Rust, no engine dependency), or build from source:
 
 ```bash
 cargo run --manifest-path bindings/godot/drift-godot-lint/Cargo.toml -- <file.gd | project directory>
