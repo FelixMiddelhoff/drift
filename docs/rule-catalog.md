@@ -104,6 +104,8 @@ fixed_step_functions = ["physics::integrate"]
 
 **Known problem**: `fixed_step_functions` is a blunt, whole-function exemption — it doesn't distinguish genuinely fixed-step-safe arithmetic from fragile arithmetic within the same function, or vice versa. Suppress a specific expression with `#[allow(drift_float_outside_fixed_step)]`.
 
+**Real gap found dogfooding the Godot binding, applies here too**: only plain binary operators (`a + b`) are matched — a compound-assignment accumulation (`total += delta`) is a distinct AST shape this rule doesn't walk, so float drift accumulated that way inside a tick-reachable function goes uncaught. Confirmed against a real project (`Orama-Interactive/Pixelorama`)'s own `_marching_ants_time_elapsed += delta` inside a Godot `_process` — same gap exists here since the operator-matching logic is the same shape. Not fixed yet, disclosed rather than silently missed.
+
 ## Suppressing a rule
 
 Every rule is a plain rustc lint under the hood — suppress the normal way:
@@ -248,9 +250,11 @@ Flags non-associative float/double arithmetic (`+`, `-`, `*`, `/`) reachable fro
 
 **Dogfood result, real, against a root that actually reaches float arithmetic**: `ULyraRangedWeaponInstance::Tick` (isolated single-file compile database, `tick_reachable_roots = ["ULyraRangedWeaponInstance::Tick"]`) — `Tick` calls `UpdateSpread`/`UpdateMultipliers`, both real, non-synthetic float arithmetic (spread-cooldown decay, movement/crouch/jump spread multipliers smoothly interpolated every tick). Found 4 real findings in `LyraRangedWeaponInstance.cpp` at lines 155, 177, 181, 212 (e.g. `CurrentHeat - (CooldownRate * DeltaSeconds)`), plus one real header-internal hit inside `World.h` (see the header-scanning limitation the other rules share, not repeated here). Closes the gap the earlier `ALyraWeaponSpawner::Tick` dogfood left open (that root legitimately found zero, since it only calls `Super::Tick` — a correct-but-unconvincing result on its own).
 
+**Real gap found dogfooding the Godot binding, applies here too**: compound-assignment accumulation (`CurrentValue += Delta`) isn't matched — only plain `BinaryOperator` nodes are walked, and `+=` is a distinct AST shape this tool never visits. See the Rust rule's own entry above for the real, non-synthetic example that surfaced this (`Orama-Interactive/Pixelorama`).
+
 ## Godot GDScript (`bindings/godot/drift-godot-lint`)
 
-A standalone Rust binary using [`gdck-syntax`](https://crates.io/crates/gdck-syntax) (a real, lossless, pure-Rust GDScript 4 parser — no engine dependency, no `.gdextension`) directly against a project's `.gd` files. Foundation validated by a real feasibility spike first (see [drift-godot-unreal-plan.md §9](https://github.com/FelixMiddelhoff/drift) for the full spike write-up): 468/470 files of a real, substantial Godot 4 game (`SlayHorizon/godot-tiny-mmo`) parsed clean.
+A standalone Rust binary using [`gdck-syntax`](https://crates.io/crates/gdck-syntax) (a real, lossless, pure-Rust GDScript 4 parser — no engine dependency, no `.gdextension`) directly against a project's `.gd` files. Foundation validated by a real feasibility spike first (see [drift-godot-unreal-plan.md §9](https://github.com/FelixMiddelhoff/drift) for the full spike write-up): 468/470 files of a real, substantial Godot 4 game (`SlayHorizon/godot-tiny-mmo`) parsed clean. A second, unrelated real project — [`Orama-Interactive/Pixelorama`](https://github.com/Orama-Interactive/Pixelorama), a shipped pixel-art editor (250 `.gd` files, ~59.5k lines, Godot 4.7) — parsed 250/250 clean, 0 parse errors, run under `DRIFT_GODOT_STATS=1` to confirm rather than assume.
 
 Build: `cargo build` inside `bindings/godot/drift-godot-lint` — no external toolchain needed (pure Rust, unlike the Unreal binding's libclang dependency). Run: `drift-godot-lint <file.gd | project directory>` — `unseeded_rng`, `wallclock_read`, and `unordered_parallelism` always run; `float_outside_fixed_step` runs automatically wherever `_process`/`_physics_process` is defined, no config file needed (see its own entry below for why). A directory is walked recursively, skipping `.godot` (Godot's own editor cache, never real project source).
 
@@ -266,6 +270,8 @@ Matched as a **bare** `NameRef` callee, not any call whose method name matches �
 
 **Dogfood result, real**: run against `SlayHorizon/godot-tiny-mmo` (the same real, 470-file Godot 4 game the feasibility spike used) — 20 real findings, including the exact 6 call sites the spike itself had already found by hand (`gateway.gd`, `local_player.gd`, `dungeon_service.gd`, `weapon.gd`), plus more once the full `RNG_FUNCS` list (the spike's own throwaway visitor only checked `randi`/`randf`/`randi_range`/`randf_range`) was applied for real.
 
+**Second dogfood target, a different genre entirely**: run against [`Orama-Interactive/Pixelorama`](https://github.com/Orama-Interactive/Pixelorama) (a real, shipped pixel-art editor, 250 `.gd` files, ~59.5k lines, Godot 4.7) — 16 real findings, spot-checked: `BaseDraw.gd:218` (`randi() % _brush.random.size()`, picking a random brush variant) and `VanishingPoint.gd:7` (`Color(randf(), randf(), randf(), 1)`, a randomized debug-handle color) are both genuine unseeded global-RNG reads, correctly located down to the column for multiple calls on the same line.
+
 ### `drift-godot::wallclock_read`
 
 Flags `OS.get_ticks_msec`, `OS.get_ticks_usec`, `Time.get_ticks_msec`, `Time.get_ticks_usec`, `Time.get_unix_time_from_system` — a value that differs per peer/run must never feed simulated state. Same rationale as `drift::wallclock_read`/`DRIFT0003`/`drift-unreal::wallclock_read`. Matched as a `Type.method`-shaped `AttributeExpr` callee, same shape as Unreal's own `FPlatformTime::Seconds`-style matching — and the same trailing-whitespace fix above applies here too. **Fires unconditionally**, no reachability scoping needed.
@@ -274,11 +280,13 @@ Flags `OS.get_ticks_msec`, `OS.get_ticks_usec`, `Time.get_ticks_msec`, `Time.get
 
 **Dogfood result, real**: run against `SlayHorizon/godot-tiny-mmo` — 151 real findings across client, server, and shared code (`Time.get_ticks_msec`/`get_ticks_usec` for perf/sync timing, `Time.get_unix_time_from_system` for chat/mail/leaderboard timestamps), a real superset of the spike's own 41 hand-found hits once `get_ticks_usec` was added to the real tool's list.
 
+**Second dogfood target**: `Orama-Interactive/Pixelorama` — 5 real findings: `Time.get_unix_time_from_system()` (autosave/crash-recovery timestamps in `Global.gd`/`OpenSave.gd`, a debounce check in `GradientEdit.gd`) and one `Time.get_ticks_msec()` (`Main.gd:244`). Correctly distinguishes real `Time.*` calls from the codebase's own many unrelated `_delta`/timer-parameter uses of the word "time" — no false positives on those.
+
 ### `drift-godot::unordered_parallelism`
 
 Flags `WorkerThreadPool.add_task`/`WorkerThreadPool.add_group_task` — Godot's own thread-pool dispatch, whose completion order isn't guaranteed. Same known-problem caveat as `drift::unordered_parallelism`/`DRIFT0004`/`drift-unreal::unordered_parallelism`, inherited rather than re-litigated. Matched as a `Type.method` `AttributeExpr` callee, same shape as `wallclock_read`. **Fires unconditionally**, no reachability scoping needed.
 
-**Real, disclosed gap**: `SlayHorizon/godot-tiny-mmo` has zero confirmed call sites for either function — not evidence the rule is unneeded (`WorkerThreadPool` is a standard, documented Godot 4 parallelism primitive), just evidence this specific real corpus doesn't use it, same situation `drift-unreal-lint`'s own `unordered_parallelism` was in against Lyra. Validated instead with a real positive/negative fixture: a bare `WorkerThreadPool.add_task(...)` call fires; an unrelated class's own same-named `add_task` method doesn't.
+**Real, disclosed gap**: both `SlayHorizon/godot-tiny-mmo` and `Orama-Interactive/Pixelorama` have zero confirmed call sites for either function — not evidence the rule is unneeded (`WorkerThreadPool` is a standard, documented Godot 4 parallelism primitive), just evidence neither real corpus checked so far uses it, same situation `drift-unreal-lint`'s own `unordered_parallelism` was in against Lyra. Validated instead with a real positive/negative fixture: a bare `WorkerThreadPool.add_task(...)` call fires; an unrelated class's own same-named `add_task` method doesn't.
 
 ### `drift-godot::float_outside_fixed_step`
 
@@ -289,6 +297,8 @@ Flags non-associative float arithmetic (`+`, `-`, `*`, `/`) reachable from `_pro
 **A second, separate real limitation**: the reachability call graph is flat and name-only (no symbol table to resolve `self.foo()`/`obj.foo()` to a specific class) — two unrelated methods sharing a name collide into one call-graph node. This widens reachability (a real false-positive risk) rather than silently dropping a real edge, the opposite trade-off from a missed edge. **Real bug found dogfooding, fixed**: this collision also caused the identical finding to be printed twice when two colliding names both resolved to the same underlying function (`toaster.gd:154:22`, confirmed in real output) — fixed with a dedup pass on `(file, line, column, rule)` before printing, same fix shape `drift-unreal-lint` needed for its own real `UE_LOG` macro-duplication bug.
 
 **Dogfood result, real**: run against `SlayHorizon/godot-tiny-mmo` — 861 of 1,999 total functions resolved reachable from `_process`/`_physics_process`, 84 real findings. Spot-checked, not just counted: `local_player.gd:382` (`velocity = input_direction * move_speed`, where `move_speed` is a local explicitly typed `: float`) fires — a real confirmation the local-type-tracking design catches real, non-synthetic code, not just the synthetic fixture. Ran in well under a second even with the whole-project call-graph construction (1,999 functions, no libclang-style parse cost here).
+
+**Second dogfood target, and a real miss it surfaced**: `Orama-Interactive/Pixelorama` — 0 findings, but investigating *why* (rather than trusting a clean run) found a real false negative: `Selection.gd`'s `_process(delta: float)` does `_marching_ants_time_elapsed += delta`, a genuine float accumulation reachable from a real tick function, invisible to this rule because `+=` is a distinct AST shape from the plain `BinaryExpr` this tool walks — not the typed-variable gap already disclosed above, a different, previously-undocumented one. Confirmed the same gap exists in the Rust and Unreal implementations too (their own operator lists never handled compound assignment either) — see `drift::float_outside_fixed_step`'s own entry for the cross-binding note. Not fixed yet.
 
 ### Fixture
 

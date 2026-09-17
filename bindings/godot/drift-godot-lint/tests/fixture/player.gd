@@ -51,6 +51,7 @@ var gravity := 9.8
 # per operator.
 func _physics_process(delta: float) -> void:
 	apply_gravity(delta)
+	accumulate(delta)
 	# Real, disclosed limitation: pure untyped-variable arithmetic is
 	# invisible to this rule (no type inference) — must NOT fire even
 	# though it's reachable from _physics_process.
@@ -60,6 +61,17 @@ func _physics_process(delta: float) -> void:
 
 func apply_gravity(delta: float) -> void:
 	velocity_y = velocity_y + gravity * delta
+
+var elapsed := 0.0
+
+# Must NOT fire (a real, disclosed gap, not intentional coverage): a
+# compound-assignment accumulation is a distinct AST shape from the plain
+# BinaryExpr this rule walks. Found dogfooding against a real project
+# (Orama-Interactive/Pixelorama's own Selection.gd `_marching_ants_time_
+# elapsed += delta` inside a real _process) — same gap exists in the
+# Rust/Unreal implementations too, see docs/rule-catalog.md.
+func accumulate(delta: float) -> void:
+	elapsed += delta
 
 # Must NOT fire: same float-arithmetic shape as apply_gravity, but never
 # called from _process/_physics_process — reachability scoping excludes

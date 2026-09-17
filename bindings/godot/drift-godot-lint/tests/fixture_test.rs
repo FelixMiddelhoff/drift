@@ -28,7 +28,7 @@ fn unconditional_rules_fire_on_bare_calls_only() {
     assert!(lines[1].contains("[drift-godot::wallclock_read]"));
     assert!(lines[2].contains("player.gd:34:2"));
     assert!(lines[2].contains("[drift-godot::unordered_parallelism]"));
-    assert!(lines[3].contains("player.gd:62:14"));
+    assert!(lines[3].contains("player.gd:63:14"));
     assert!(lines[3].contains("[drift-godot::float_outside_fixed_step]"));
 
     // A member call on a project-owned seedable RNG instance
@@ -49,5 +49,11 @@ fn unconditional_rules_fire_on_bare_calls_only() {
     assert!(!stdout.contains("player.gd:59"));
     // Same float-arithmetic shape as apply_gravity, but never called from
     // _process/_physics_process — reachability scoping must exclude it.
-    assert!(!stdout.contains("player.gd:68"));
+    assert!(!stdout.contains("player.gd:80"));
+    // Real, disclosed gap found dogfooding against Pixelorama: a
+    // compound-assignment accumulation (`elapsed += delta`) reachable from
+    // _physics_process must NOT fire — `+=` is a distinct AST shape this
+    // rule doesn't walk, unlike the plain `velocity_y + gravity * delta`
+    // case above which does.
+    assert!(!stdout.contains("player.gd:74"));
 }
