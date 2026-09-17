@@ -64,12 +64,12 @@ func apply_gravity(delta: float) -> void:
 
 var elapsed := 0.0
 
-# Must NOT fire (a real, disclosed gap, not intentional coverage): a
-# compound-assignment accumulation is a distinct AST shape from the plain
-# BinaryExpr this rule walks. Found dogfooding against a real project
-# (Orama-Interactive/Pixelorama's own Selection.gd `_marching_ants_time_
-# elapsed += delta` inside a real _process) — same gap exists in the
-# Rust/Unreal implementations too, see docs/rule-catalog.md.
+# Must fire: a compound-assignment accumulation (AssignStmt, not
+# BinaryExpr) reachable from _physics_process — previously a real, disclosed
+# gap found dogfooding against a real project (Orama-Interactive/
+# Pixelorama's own Selection.gd `_marching_ants_time_elapsed += delta`
+# inside a real _process), fixed here (and in the Rust/Unreal
+# implementations too, see docs/rule-catalog.md).
 func accumulate(delta: float) -> void:
 	elapsed += delta
 

@@ -74,13 +74,17 @@ fn usize_in_hashed_state_ui() {
 /// actually scopes, and that `drift::float_outside_fixed_step` (opt-in
 /// only, and its own outermost-expression-only dedup for a chain like
 /// `a + b + c`) does too. `tests/reachability_fixture` has:
-/// - a `HashMap::iter()` and a float-arithmetic chain inside `helper()`,
-///   reachable from the configured `tick` root — both should fire, the
-///   float one exactly once despite being a 2-operator chain.
+/// - a `HashMap::iter()`, a float-arithmetic chain, and a float compound
+///   assignment (`total += a`) inside `helper()`, reachable from the
+///   configured `tick` root — all should fire; the chain exactly once
+///   despite being a 2-operator chain, and the compound assignment as its
+///   own separate hit (a distinct `AssignOp` HIR node, not a chain operand
+///   the dedup logic needs to collapse).
 /// - the same float arithmetic inside `physics_integrate()`, which
 ///   `dylint.toml` lists in `fixed_step_functions` — should NOT fire.
-/// - the same `HashMap::iter()` and a float op inside `unreachable_fn()`,
-///   not reachable from `tick` at all — neither should fire.
+/// - the same `HashMap::iter()`, float op, and compound assignment inside
+///   `unreachable_fn()`, not reachable from `tick` at all — none should
+///   fire.
 ///
 /// Shells out to a real `cargo build` + `cargo dylint --lib-path`, the
 /// same invocation this session used by hand to first prove reachability
@@ -128,7 +132,7 @@ fn reachability_scoping() {
 
     let float_hits = stderr.matches("non-associative float arithmetic").count();
     assert_eq!(
-        float_hits, 1,
-        "expected exactly one float_outside_fixed_step hit (the reachable, non-exempt chain, deduped to its outermost expression), got:\n{stderr}"
+        float_hits, 2,
+        "expected exactly two float_outside_fixed_step hits — the reachable, non-exempt chain (deduped to its outermost expression) and the reachable compound-assignment accumulation (`total += a`, a distinct AssignOp node, not a chain operand) — got:\n{stderr}"
     );
 }

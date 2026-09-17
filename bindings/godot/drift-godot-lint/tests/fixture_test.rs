@@ -21,7 +21,7 @@ fn unconditional_rules_fire_on_bare_calls_only() {
     assert_eq!(out.status.code(), Some(1), "stdout was: {stdout}");
 
     let lines: Vec<&str> = stdout.lines().collect();
-    assert_eq!(lines.len(), 4, "expected exactly 4 findings, got: {stdout}");
+    assert_eq!(lines.len(), 5, "expected exactly 5 findings, got: {stdout}");
     assert!(lines[0].contains("player.gd:8:8"));
     assert!(lines[0].contains("[drift-godot::unseeded_rng]"));
     assert!(lines[1].contains("player.gd:20:12"));
@@ -30,6 +30,11 @@ fn unconditional_rules_fire_on_bare_calls_only() {
     assert!(lines[2].contains("[drift-godot::unordered_parallelism]"));
     assert!(lines[3].contains("player.gd:63:14"));
     assert!(lines[3].contains("[drift-godot::float_outside_fixed_step]"));
+    // Compound assignment (`elapsed += delta`, an AssignStmt, not a
+    // BinaryExpr) — previously a real, disclosed gap found dogfooding
+    // against Pixelorama, fixed here. Fires as its own hit.
+    assert!(lines[4].contains("player.gd:74:2"));
+    assert!(lines[4].contains("[drift-godot::float_outside_fixed_step]"));
 
     // A member call on a project-owned seedable RNG instance
     // (`seeded_rng.randi_range(...)`) must never fire — only the bare
@@ -50,10 +55,4 @@ fn unconditional_rules_fire_on_bare_calls_only() {
     // Same float-arithmetic shape as apply_gravity, but never called from
     // _process/_physics_process — reachability scoping must exclude it.
     assert!(!stdout.contains("player.gd:80"));
-    // Real, disclosed gap found dogfooding against Pixelorama: a
-    // compound-assignment accumulation (`elapsed += delta`) reachable from
-    // _physics_process must NOT fire — `+=` is a distinct AST shape this
-    // rule doesn't walk, unlike the plain `velocity_y + gravity * delta`
-    // case above which does.
-    assert!(!stdout.contains("player.gd:74"));
 }

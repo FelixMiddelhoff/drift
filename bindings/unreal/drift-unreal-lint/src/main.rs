@@ -155,6 +155,15 @@ fn binary_operator_spelling(entity: &Entity) -> Option<String> {
 }
 
 const ARITHMETIC_OPS: &[&str] = &["+", "-", "*", "/"];
+/// Compound-assignment counterparts (`x += y`) — a real gap found
+/// dogfooding drift-godot-lint against a real project
+/// (Orama-Interactive/Pixelorama's own `_process` accumulating a timer via
+/// `+=`): the original `EntityKind::BinaryOperator`-only scan below never
+/// visited these, since libclang represents `+=`/`-=`/`*=`/`/=` as a
+/// distinct `EntityKind::CompoundAssignOperator` node, not a
+/// `BinaryOperator`. Confirmed against the `clang` crate's own EntityKind
+/// docs, not assumed.
+const COMPOUND_ARITHMETIC_OPS: &[&str] = &["+=", "-=", "*=", "/="];
 
 fn is_float_type(entity: &Entity) -> bool {
     entity
@@ -199,9 +208,14 @@ struct WorkerOutput {
 fn scan_float_chains(body: Entity, findings: &mut Vec<Finding>) {
     fn visit(entity: Entity, inside_qualifying_parent: bool, findings: &mut Vec<Finding>) {
         let mut this_qualifies = false;
-        if entity.get_kind() == EntityKind::BinaryOperator && is_float_type(&entity) {
+        let kind = entity.get_kind();
+        if (kind == EntityKind::BinaryOperator || kind == EntityKind::CompoundAssignOperator)
+            && is_float_type(&entity)
+        {
             if let Some(op) = binary_operator_spelling(&entity) {
-                if ARITHMETIC_OPS.contains(&op.as_str()) {
+                if ARITHMETIC_OPS.contains(&op.as_str())
+                    || COMPOUND_ARITHMETIC_OPS.contains(&op.as_str())
+                {
                     this_qualifies = true;
                 }
             }

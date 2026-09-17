@@ -93,10 +93,26 @@ impl<'tcx> LateLintPass<'tcx> for FloatOutsideFixedStep {
         if self.config.tick_reachable_roots.is_empty() {
             return;
         }
-        let ExprKind::Binary(op, lhs, _rhs) = expr.kind else {
-            return;
+        // A compound assignment (`total += delta`) is a distinct HIR node
+        // (`AssignOp`, not `Binary`) carrying the same `BinOp` — a real gap
+        // found dogfooding drift-godot-lint against a real project
+        // (Orama-Interactive/Pixelorama's own `_process` accumulating a
+        // timer via `+=`): the original Binary-only check silently missed
+        // it here too, confirmed by grepping this file for `AssignOp`
+        // before this fix (no match). `is_compound_assign` distinguishes
+        // it from `Binary` below since AssignOp can't be a chain operand
+        // (its type is `()`, so it's never nested inside another
+        // arithmetic expr) and is always its own standalone statement.
+        let (op, lhs, is_compound_assign) = match expr.kind {
+            ExprKind::Binary(op, lhs, _rhs) => (op.node, lhs, false),
+            // `AssignOp` carries its own `AssignOpKind` (`AddAssign`,
+            // `SubAssign`, ...), not `BinOpKind` — convert via rustc's own
+            // `From<AssignOpKind> for BinOpKind` so `FLAGGED_OPS` below
+            // covers both node kinds with one list.
+            ExprKind::AssignOp(op, lhs, _rhs) => (BinOpKind::from(op.node), lhs, true),
+            _ => return,
         };
-        if !FLAGGED_OPS.contains(&op.node) {
+        if !FLAGGED_OPS.contains(&op) {
             return;
         }
         let lhs_ty = cx.typeck_results().expr_ty(lhs);
@@ -109,7 +125,9 @@ impl<'tcx> LateLintPass<'tcx> for FloatOutsideFixedStep {
         // near-duplicate warnings on the same line (confirmed for real:
         // an unguarded version of this check emitted two warnings for
         // one `a + b + c` in the fixture below before this was added).
-        if let Node::Expr(parent) = cx.tcx.parent_hir_node(expr.hir_id)
+        // Doesn't apply to AssignOp — never a chain operand, see above.
+        if !is_compound_assign
+            && let Node::Expr(parent) = cx.tcx.parent_hir_node(expr.hir_id)
             && let ExprKind::Binary(parent_op, parent_lhs, _) = parent.kind
             && FLAGGED_OPS.contains(&parent_op.node)
             && matches!(

@@ -73,6 +73,7 @@ public:
 
     float Velocity = 0.0f;
     float Position = 0.0f;
+    float ElapsedTime = 0.0f;
     TMap<int, float> ScoreByPlayer;
     TArray<int> SortedIds;
 };
@@ -88,6 +89,10 @@ void ATestPawn::Simulate(float DeltaTime)
 {
     Velocity = Velocity + DeltaTime * 9.8f;
     Position = Position + Velocity + DeltaTime;
+    // Compound assignment (EntityKind::CompoundAssignOperator, not
+    // BinaryOperator) — a real gap found dogfooding drift-godot-lint
+    // against a real project, fixed here too. Must fire as its own hit.
+    ElapsedTime += DeltaTime;
 }
 
 // Never called from Tick — must not be flagged even though it has the
@@ -95,6 +100,7 @@ void ATestPawn::Simulate(float DeltaTime)
 void ATestPawn::NotReached(float DeltaTime)
 {
     Velocity = Velocity + DeltaTime * 9.8f;
+    ElapsedTime += DeltaTime;
 }
 
 // unseeded_rng fires here unconditionally, with or without any config —

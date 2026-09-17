@@ -100,6 +100,22 @@ const ARITHMETIC_OPS: &[SyntaxKind] = &[
     SyntaxKind::Slash,
 ];
 
+/// Compound-assignment counterparts (`x += y`) — a real gap found
+/// dogfooding against a real project (Orama-Interactive/Pixelorama's own
+/// `_process` accumulating a timer via `+=`): gdck-syntax represents
+/// `x += y` as an `AssignStmt` node (shared with plain `x = y`, and with
+/// every other compound-assignment operator — `%=`, `&=`, etc., which
+/// aren't arithmetic and stay excluded, same as `ARITHMETIC_OPS` above),
+/// not a `BinaryExpr` — the original `BinaryExpr`-only scan never visited
+/// it. `**=` (`StarStarEq`) is deliberately excluded too, matching
+/// `ARITHMETIC_OPS` not including `**`.
+const COMPOUND_ARITHMETIC_OPS: &[SyntaxKind] = &[
+    SyntaxKind::PlusEq,
+    SyntaxKind::MinusEq,
+    SyntaxKind::StarEq,
+    SyntaxKind::SlashEq,
+];
+
 struct Finding {
     file: PathBuf,
     line: u32,
@@ -222,15 +238,16 @@ fn expr_is_float_ish(node: SyntaxNode, float_names: &HashSet<String>) -> bool {
 /// A `BinaryExpr` qualifies if its operator is arithmetic (`+ - * /`, not
 /// a comparison/logical operator, which is also a real `BinaryExpr` in
 /// this grammar) and at least one operand is float-ish per
-/// `expr_is_float_ish`.
+/// `expr_is_float_ish`. An `AssignStmt` qualifies the same way, using the
+/// compound-assignment operator set instead — see `COMPOUND_ARITHMETIC_OPS`
+/// for why this is a separate node kind, not folded into `BinaryExpr`.
 fn is_qualifying_float_binary(node: SyntaxNode, float_names: &HashSet<String>) -> bool {
-    if node.kind() != SyntaxKind::BinaryExpr {
-        return false;
-    }
-    if !node
-        .child_tokens()
-        .any(|t| ARITHMETIC_OPS.contains(&t.kind))
-    {
+    let ops: &[SyntaxKind] = match node.kind() {
+        SyntaxKind::BinaryExpr => ARITHMETIC_OPS,
+        SyntaxKind::AssignStmt => COMPOUND_ARITHMETIC_OPS,
+        _ => return false,
+    };
+    if !node.child_tokens().any(|t| ops.contains(&t.kind)) {
         return false;
     }
     let operands: Vec<_> = node.child_nodes().collect();

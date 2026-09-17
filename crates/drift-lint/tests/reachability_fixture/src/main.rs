@@ -16,6 +16,9 @@ fn helper() {
     let b = 2.0_f32;
     let c = 3.0_f32;
     let _sum = a + b + c; // reachable, not fixed-step-exempt -> should be flagged (drift::float_outside_fixed_step)
+
+    let mut total = 0.0_f32;
+    total += a; // reachable, compound assignment -> should be flagged too (AssignOp, not just Binary)
 }
 
 // Listed in dylint.toml's fixed_step_functions -> exempt even though
@@ -34,6 +37,9 @@ fn unreachable_fn() {
     let a = 1.0_f32;
     let b = 2.0_f32;
     let _sum = a + b; // not reachable -> should NOT be flagged
+
+    let mut total = 0.0_f32;
+    total += a; // not reachable, compound assignment -> should NOT be flagged either
 }
 
 fn main() {

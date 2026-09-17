@@ -26,24 +26,24 @@ fn unconditional_rules_fire_with_no_config() {
 
     let lines: Vec<&str> = stdout.lines().collect();
     assert_eq!(lines.len(), 6, "expected exactly 6 findings, got: {stdout}");
-    assert!(lines[0].contains("pawn.cpp:104:12"));
+    assert!(lines[0].contains("pawn.cpp:110:12"));
     assert!(lines[0].contains("[drift-unreal::unseeded_rng]"));
-    assert!(lines[1].contains("pawn.cpp:119:12"));
+    assert!(lines[1].contains("pawn.cpp:125:12"));
     assert!(lines[1].contains("[drift-unreal::wallclock_read]"));
-    assert!(lines[2].contains("pawn.cpp:125:5"));
+    assert!(lines[2].contains("pawn.cpp:131:5"));
     assert!(lines[2].contains("[drift-unreal::hashmap_iter]"));
-    assert!(lines[3].contains("pawn.cpp:135:15"));
+    assert!(lines[3].contains("pawn.cpp:141:15"));
     assert!(lines[3].contains("[drift-unreal::hashmap_iter]"));
-    assert!(lines[4].contains("pawn.cpp:166:5"));
+    assert!(lines[4].contains("pawn.cpp:172:5"));
     assert!(lines[4].contains("[drift-unreal::unordered_parallelism]"));
-    assert!(lines[5].contains("pawn.cpp:193:34"));
+    assert!(lines[5].contains("pawn.cpp:199:34"));
     assert!(lines[5].contains("[drift-unreal::usize_in_hashed_state]"));
 
     // Iterating a TArray, even one built to hold a map's own values and
     // sorted immediately before, must never fire — hashmap_iter's
     // type-based detection only matches TMap/TSet, a different type than
     // whatever a project sorts a map's contents into.
-    assert!(!stdout.contains("pawn.cpp:146"));
+    assert!(!stdout.contains("pawn.cpp:152"));
     // AsyncTask is deliberately excluded from unordered_parallelism (see
     // main.rs's UNORDERED_PARALLELISM_FUNCS comment) — must never fire.
     assert!(!stdout.contains("AsyncTask() dispatches"));
@@ -62,27 +62,35 @@ fn float_chain_flagged_once_per_statement_reachable_functions_only() {
     // usize_in_hashed_state still fire (unconditional) alongside the
     // opt-in float rule once a config file is present.
     let lines: Vec<&str> = stdout.lines().collect();
-    assert_eq!(lines.len(), 8, "expected exactly 8 findings, got: {stdout}");
-    assert!(lines[0].contains("pawn.cpp:89:16"));
+    assert_eq!(lines.len(), 9, "expected exactly 9 findings, got: {stdout}");
+    assert!(lines[0].contains("pawn.cpp:90:16"));
     assert!(lines[0].contains("[drift-unreal::float_outside_fixed_step]"));
-    assert!(lines[1].contains("pawn.cpp:90:16"));
+    assert!(lines[1].contains("pawn.cpp:91:16"));
     assert!(lines[1].contains("[drift-unreal::float_outside_fixed_step]"));
-    assert!(lines[2].contains("pawn.cpp:104:12"));
-    assert!(lines[2].contains("[drift-unreal::unseeded_rng]"));
-    assert!(lines[3].contains("pawn.cpp:119:12"));
-    assert!(lines[3].contains("[drift-unreal::wallclock_read]"));
-    assert!(lines[4].contains("pawn.cpp:125:5"));
-    assert!(lines[4].contains("[drift-unreal::hashmap_iter]"));
-    assert!(lines[5].contains("pawn.cpp:135:15"));
+    // Compound assignment (`ElapsedTime += DeltaTime`) — a real gap found
+    // dogfooding drift-godot-lint against a real project, fixed here too.
+    // Fires as its own hit, a distinct EntityKind::CompoundAssignOperator
+    // node, not a chain operand of the two BinaryOperator hits above.
+    assert!(lines[2].contains("pawn.cpp:95:5"));
+    assert!(lines[2].contains("[drift-unreal::float_outside_fixed_step]"));
+    assert!(lines[3].contains("pawn.cpp:110:12"));
+    assert!(lines[3].contains("[drift-unreal::unseeded_rng]"));
+    assert!(lines[4].contains("pawn.cpp:125:12"));
+    assert!(lines[4].contains("[drift-unreal::wallclock_read]"));
+    assert!(lines[5].contains("pawn.cpp:131:5"));
     assert!(lines[5].contains("[drift-unreal::hashmap_iter]"));
-    assert!(lines[6].contains("pawn.cpp:166:5"));
-    assert!(lines[6].contains("[drift-unreal::unordered_parallelism]"));
-    assert!(lines[7].contains("pawn.cpp:193:34"));
-    assert!(lines[7].contains("[drift-unreal::usize_in_hashed_state]"));
+    assert!(lines[6].contains("pawn.cpp:141:15"));
+    assert!(lines[6].contains("[drift-unreal::hashmap_iter]"));
+    assert!(lines[7].contains("pawn.cpp:172:5"));
+    assert!(lines[7].contains("[drift-unreal::unordered_parallelism]"));
+    assert!(lines[8].contains("pawn.cpp:199:34"));
+    assert!(lines[8].contains("[drift-unreal::usize_in_hashed_state]"));
 
-    // Same float-chain shape as Simulate, but never called from Tick —
-    // reachability scoping must not flag it.
-    assert!(!stdout.contains("pawn.cpp:97"));
+    // Same float-chain shape as Simulate (including the compound
+    // assignment), but never called from Tick — reachability scoping must
+    // not flag any of it.
+    assert!(!stdout.contains("pawn.cpp:102"));
+    assert!(!stdout.contains("pawn.cpp:103"));
 }
 
 #[test]
