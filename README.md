@@ -18,7 +18,7 @@ Companion to [Foldback](https://github.com/FelixMiddelhoff/foldback) (runtime de
 | C++ / Unreal | `bindings/unreal/drift-unreal-lint`, a standalone binary over stock LLVM/Clang (no engine fork needed), full 6-rule taxonomy parity, against a project's `compile_commands.json` |
 | GDScript / Godot | `bindings/godot/drift-godot-lint`, a standalone binary over [gdck-syntax](https://crates.io/crates/gdck-syntax) (pure Rust, no engine dependency), 4 of 6 rules (`hashmap_iter`/`usize_in_hashed_state` don't apply to GDScript, see below) |
 
-Full rule reference, one entry per rule with a real example and fix: [docs/rule-catalog.md](docs/rule-catalog.md).
+Full rule reference, one entry per rule with a real example and fix: [docs/rule-catalog.md](docs/rule-catalog.md). Full step-by-step walkthroughs on the [docs site](https://felixmiddelhoff.github.io/drift/): [Rust](https://felixmiddelhoff.github.io/drift/rust-walkthrough.html), [C# / Unity](https://felixmiddelhoff.github.io/drift/csharp-unity-walkthrough.html), [Unreal](https://felixmiddelhoff.github.io/drift/unreal-walkthrough.html), [Godot](https://felixmiddelhoff.github.io/drift/godot-walkthrough.html).
 
 ## Rust quickstart
 
