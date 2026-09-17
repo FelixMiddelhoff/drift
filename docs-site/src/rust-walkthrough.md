@@ -120,6 +120,10 @@ jobs:
 
 `cargo dylint` exits non-zero when there are findings — no extra plumbing needed to fail the job. Commit your `dylint.toml` (if you use `tick_reachable_roots`) alongside your own project so it evolves with your simulation code, same as the [Unreal walkthrough](./unreal-walkthrough.md)'s `config.toml`.
 
+## Real-world validation
+
+Every rule above has also been run against [`veloren/veloren`](https://github.com/veloren/veloren)'s `common` crate group — a real, shipped open-source multiplayer voxel RPG, not a toy — with genuine findings: real `rand::random()` calls inside combat-state code, a real `Instant::now()` field in the simulation's own `State` struct, real `HashMap` iteration in an ECS aura system, and a `usize` field caught *through a type alias* (`pub type Species = usize;`), confirming type resolution goes through rustc's own type information, not just textual matching. See each rule's own entry in the [rule catalog](./rule-catalog.md) for the exact file:line results.
+
 ## Known limitations
 
 See the [rule catalog](./rule-catalog.md) for the full, honest list per rule. The short version: reachability is a direct, intra-crate call graph only — `dyn Trait`/function-pointer call targets aren't resolvable via a plain HIR walk, so they don't add an edge. This is a deliberate under-approximation (a missed rule firing is judged less damaging to trust in the tool than a wrong one) — see the rule catalog for why.

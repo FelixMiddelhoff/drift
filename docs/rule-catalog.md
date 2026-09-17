@@ -20,8 +20,6 @@ Root paths are matched against `TyCtxt::def_path_str`, which does **not** includ
 
 ### `drift::hashmap_iter`
 
-### `drift::hashmap_iter`
-
 Flags iterating a `HashMap`/`HashSet` (`.iter()`, `.iter_mut()`, `.into_iter()`, `.keys()`, `.values()`, `.values_mut()`, `.drain()`).
 
 **Why**: iteration order isn't guaranteed stable across peers/platforms/runs. Feeding it into anything that affects simulated state (spawn order, damage application order, event dispatch) is a classic desync source.
@@ -54,6 +52,8 @@ entries.sort_by(|a, b| a.0.cmp(b.0));
 
 This is pattern-matching one known shape (same statement's binding, very next statement, same block), not real dataflow analysis — sorting a few statements later, through a helper function, or after the value moves into a field still fires. Suppress those with `#[allow(drift_hashmap_iter)]`.
 
+**Dogfood result, real**: run against [`veloren/veloren`](https://github.com/veloren/veloren)'s `common` crate group (a real, shipped open-source multiplayer voxel RPG — 277 `.rs` files across 10 workspace crates: `veloren-common`, `-base`, `-ecs`, `-net`, `-state`, `-systems`, etc.) — 5 real findings, e.g. `common/systems/src/aura.rs:176` and `:180`, both real `HashMap`/`HashSet` iteration inside an ECS aura-application system.
+
 ### `drift::unseeded_rng`
 
 Flags `rand::thread_rng()` and `rand::random()`.
@@ -61,6 +61,8 @@ Flags `rand::thread_rng()` and `rand::random()`.
 **Why**: an RNG seeded from OS entropy differs per peer and per run by construction — any simulation decision that reads from it desyncs immediately.
 
 Fix: use an RNG constructed from an explicit, tracked seed (e.g. `StdRng::seed_from_u64(tick_seed)`) fed by your simulation's own deterministic seed source. Suppress with `#[allow(drift_unseeded_rng)]` for genuinely cosmetic randomness (particle effects, UI flourish).
+
+**Dogfood result, real**: run against `veloren/veloren`'s `common` crate group — 26 real findings, all `rand::random()`, spread across real combat-state files (`leap_explosion_shockwave.rs`, `leap_shockwave.rs`, `rapid_melee.rs`, `shockwave.rs`) — real gameplay-simulation code, not test/example files.
 
 ### `drift::wallclock_read`
 
@@ -70,6 +72,8 @@ Flags `std::time::SystemTime::now()` and `std::time::Instant::now()`.
 
 Fix: use your simulation's own deterministic tick counter. Suppress with `#[allow(drift_wallclock_read)]` at legitimate profiling/logging call sites.
 
+**Dogfood result, real**: run against `veloren/veloren`'s `common` crate group — 18 real findings, including `common/state/src/state.rs:966` (`start: Instant::now()`), a real timing field inside the simulation's own `State` struct.
+
 ### `drift::unordered_parallelism`
 
 Flags `.par_iter()`, `.par_iter_mut()`, `.into_par_iter()`, `.par_bridge()` (rayon).
@@ -78,6 +82,8 @@ Flags `.par_iter()`, `.par_iter_mut()`, `.into_par_iter()`, `.par_bridge()` (ray
 
 **Known problem**: doesn't verify the chain actually ends in a non-commutative reduction — a `par_iter()` whose result is genuinely order-independent (e.g. `.sum()`) is a false positive. Suppress with `#[allow(drift_unordered_parallelism)]` once confirmed order-independent.
 
+**Dogfood result, real**: run against `veloren/veloren`'s `common` crate group — 1 real finding, `common/src/store.rs:93` (`self.items.par_iter_mut()`).
+
 ### `drift::usize_in_hashed_state`
 
 Flags `usize`/`isize` fields on a struct that also derives `Hash`.
@@ -85,6 +91,8 @@ Flags `usize`/`isize` fields on a struct that also derives `Hash`.
 **Why**: `usize`/`isize` are pointer-width (32 vs. 64 bits). A struct hashed for a cross-peer sync check that contains one hashes differently on a 32-bit vs. 64-bit build of the same logical state — a false desync report between two otherwise-correct peers on different architectures.
 
 Fix: use a fixed-width integer type (`u32`/`u64`/`i32`/`i64`) instead. Suppress with `#[allow(drift_usize_in_hashed_state)]` if the struct is only ever hashed for something width-insensitive (e.g. a `HashMap` key never compared across processes). Not scoped by reachability (see above) — it flags a field definition, not code inside a function.
+
+**Dogfood result, real**: run against `veloren/veloren`'s `common` crate group — 2 real findings: `common/src/trade.rs:209` (`pub struct TradeId(usize);`), and `common/src/comp/body/plugin.rs:58` (`pub species: Species` on a `#[derive(Hash)]` struct) — the second one confirms this rule resolves real type aliases through rustc's own type information, not just textual matching: `Species` is `pub type Species = usize;`, only visible by asking the compiler what the field's real type is, not by reading the field declaration's own spelling.
 
 ### `drift::float_outside_fixed_step`
 
@@ -105,6 +113,8 @@ fixed_step_functions = ["physics::integrate"]
 **Known problem**: `fixed_step_functions` is a blunt, whole-function exemption — it doesn't distinguish genuinely fixed-step-safe arithmetic from fragile arithmetic within the same function, or vice versa. Suppress a specific expression with `#[allow(drift_float_outside_fixed_step)]`.
 
 **Real gap found dogfooding the Godot binding, fixed here too**: compound-assignment accumulation (`total += delta`) is `ExprKind::AssignOp`, a distinct HIR node from `ExprKind::Binary` — the original scan only matched `Binary`, so float drift accumulated via `+=`/`-=`/`*=`/`/=` inside a tick-reachable function went uncaught. Found via a real project (`Orama-Interactive/Pixelorama`)'s own `_marching_ants_time_elapsed += delta` inside a Godot `_process`; confirmed the same gap existed here and in the Unreal binding, fixed in all three. `AssignOp` is matched via `BinOpKind::from(AssignOpKind)` and is never subject to the chain-dedup check above (it can't be a chain operand — its type is `()`).
+
+**Not exercised in the `veloren/veloren` dogfood above** — this rule is opt-in and no `dylint.toml`/`tick_reachable_roots` was configured for that external target (`veloren/veloren` doesn't ship a `dylint.toml`, and adding one to a third-party project's own simulation roots is out of scope for a dogfood run), so it correctly found zero hits, not evidence of anything either way. `crates/drift-lint/tests/reachability_fixture` (a real `cargo dylint` invocation, not a `ui_test`) is this rule's own positive/negative-verified regression test instead.
 
 ## Suppressing a rule
 
