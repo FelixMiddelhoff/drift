@@ -10,5 +10,6 @@
 - [C# / Unity walkthrough](./csharp-unity-walkthrough.md)
 - [Unreal walkthrough](./unreal-walkthrough.md)
 - [Godot walkthrough](./godot-walkthrough.md)
+- [FAQ / troubleshooting](./faq.md)
 - [Contributing](./contributing.md)
 - [Security policy](./security.md)

@@ -15,7 +15,7 @@ Companion to [Foldback](https://github.com/FelixMiddelhoff/foldback) (runtime de
 
 Full rule reference, one entry per rule with a real example and fix: [Rule catalog](./rule-catalog.md).
 
-Pick a quickstart from the sidebar for your language, or jump straight to a full step-by-step walkthrough: [Rust](./rust-walkthrough.md), [C# / Unity](./csharp-unity-walkthrough.md), [Unreal](./unreal-walkthrough.md), [Godot](./godot-walkthrough.md).
+Pick a quickstart from the sidebar for your language, or jump straight to a full step-by-step walkthrough: [Rust](./rust-walkthrough.md), [C# / Unity](./csharp-unity-walkthrough.md), [Unreal](./unreal-walkthrough.md), [Godot](./godot-walkthrough.md). Something not firing the way you expect? Check the [FAQ / troubleshooting](./faq.md) page first.
 
 ## License
 
