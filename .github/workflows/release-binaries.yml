@@ -79,7 +79,7 @@ jobs:
           cp "bindings/godot/drift-godot-lint/target/release/drift-godot-lint${{ matrix.ext }}" \
              "staged/drift-godot-lint-${{ matrix.target_suffix }}${{ matrix.ext }}"
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: binaries-${{ matrix.target_suffix }}
           path: staged/*
